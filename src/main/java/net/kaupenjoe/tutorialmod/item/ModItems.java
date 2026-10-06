@@ -3,6 +3,7 @@ package net.kaupenjoe.tutorialmod.item;
 import net.kaupenjoe.tutorialmod.TutorialMod;
 import net.kaupenjoe.tutorialmod.item.custom.ChiselItem;
 import net.kaupenjoe.tutorialmod.item.custom.FuelItem;
+import net.kaupenjoe.tutorialmod.item.custom.PipeItem;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -23,6 +24,9 @@ public class ModItems {
 
     public static final DeferredItem<Item> CHISEL = ITEMS.register("chisel",
             () -> new ChiselItem(new Item.Properties().durability(32)));
+
+    public static final DeferredItem<Item> PIPE = ITEMS.register("pipe",
+            () -> new PipeItem(new Item.Properties()));
 
     public static final DeferredItem<Item> RADISH = ITEMS.register("radish",
             () -> new Item(new Item.Properties().food(ModFoodProperties.RADISH)) {
