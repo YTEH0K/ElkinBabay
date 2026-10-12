@@ -2,7 +2,7 @@
   "type": "minecraft:overworld",
   "generator": {
     "type": "minecraft:noise",
-    "settings": "tutorialmod:radial",
+    "settings": "minecraft:overworld",
     "biome_source": {
       "type": "tutorialmod:radial"
     }
