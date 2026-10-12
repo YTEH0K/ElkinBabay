@@ -57,14 +57,16 @@ public class RadialBiomeSource extends BiomeSource {
                 blockX * blockX + blockZ * blockZ
         );
 
-        if (distance <= 150) {
+
+        if (distance <= 150.0) {
             return biomes.getOrThrow(Biomes.PLAINS);
         }
 
-        if (distance <= 1000) {
+        if (distance <= 650.0) {
             return biomes.getOrThrow(Biomes.OCEAN);
         }
 
         return biomes.getOrThrow(Biomes.FROZEN_OCEAN);
+
     }
 }
