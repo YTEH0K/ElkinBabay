@@ -13,19 +13,10 @@ public record RadialIslandDensity() implements SimpleFunction {
     public static final MapCodec<RadialIslandDensity> CODEC =
             MapCodec.unit(new RadialIslandDensity());
 
+
     @Override
     public double compute(FunctionContext context) {
-        double x = context.blockX();
-        double y = context.blockY();
-        double z = context.blockZ();
-
-        double distance = Math.sqrt(x * x + z * z);
-
-        if (distance <= 150.0 || y <= 63.0) {
-            return 1000.0;
-        }
-
-        return -1000.0;
+        return 1000.0;
     }
 
     @Override

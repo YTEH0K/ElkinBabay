@@ -39,7 +39,7 @@ public class RadialBiomeSource extends BiomeSource {
         return Stream.of(
                 biomes.getOrThrow(Biomes.PLAINS),
                 biomes.getOrThrow(Biomes.OCEAN),
-                biomes.getOrThrow(Biomes.FROZEN_OCEAN)
+                biomes.getOrThrow(Biomes.DEEP_FROZEN_OCEAN)
         );
     }
 
@@ -58,15 +58,9 @@ public class RadialBiomeSource extends BiomeSource {
         );
 
 
-        if (distance <= 150.0) {
-            return biomes.getOrThrow(Biomes.PLAINS);
-        }
-
-        if (distance <= 650.0) {
-            return biomes.getOrThrow(Biomes.OCEAN);
-        }
-
-        return biomes.getOrThrow(Biomes.FROZEN_OCEAN);
+        if (distance <= 150) return biomes.getOrThrow(Biomes.PLAINS);
+        if (distance <= 550) return biomes.getOrThrow(Biomes.OCEAN);
+        return biomes.getOrThrow(Biomes.DEEP_FROZEN_OCEAN);
 
     }
 }
