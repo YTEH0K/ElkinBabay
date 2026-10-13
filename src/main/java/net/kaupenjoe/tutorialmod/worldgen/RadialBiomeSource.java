@@ -37,7 +37,7 @@ public class RadialBiomeSource extends BiomeSource {
     @Override
     protected Stream<Holder<Biome>> collectPossibleBiomes() {
         return Stream.of(
-                biomes.getOrThrow(Biomes.PLAINS),
+                biomes.getOrThrow(Biomes.OCEAN),
                 biomes.getOrThrow(Biomes.OCEAN),
                 biomes.getOrThrow(Biomes.DEEP_FROZEN_OCEAN)
         );
@@ -58,7 +58,7 @@ public class RadialBiomeSource extends BiomeSource {
         );
 
 
-        if (distance <= 150) return biomes.getOrThrow(Biomes.PLAINS);
+        if (distance <= 150) return biomes.getOrThrow(Biomes.OCEAN);
         if (distance <= 550) return biomes.getOrThrow(Biomes.OCEAN);
         return biomes.getOrThrow(Biomes.DEEP_FROZEN_OCEAN);
 
