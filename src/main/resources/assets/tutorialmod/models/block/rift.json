@@ -1,0 +1,32 @@
+{
+  "textures": {
+    "rift": "minecraft:block/crying_obsidian",
+    "particle": "minecraft:block/crying_obsidian"
+  },
+  "elements": [
+    {
+      "from": [7, 0, 0],
+      "to": [9, 16, 16],
+      "faces": {
+        "north": { "texture": "#rift" },
+        "south": { "texture": "#rift" },
+        "east": { "texture": "#rift" },
+        "west": { "texture": "#rift" },
+        "up": { "texture": "#rift" },
+        "down": { "texture": "#rift" }
+      }
+    },
+    {
+      "from": [0, 0, 7],
+      "to": [16, 16, 9],
+      "faces": {
+        "north": { "texture": "#rift" },
+        "south": { "texture": "#rift" },
+        "east": { "texture": "#rift" },
+        "west": { "texture": "#rift" },
+        "up": { "texture": "#rift" },
+        "down": { "texture": "#rift" }
+      }
+    }
+  ]
+}
