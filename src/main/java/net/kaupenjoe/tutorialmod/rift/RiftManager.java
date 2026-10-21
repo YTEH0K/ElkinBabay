@@ -31,14 +31,14 @@ public final class RiftManager {
             ResourceLocation.fromNamespaceAndPath(TutorialMod.MOD_ID, "prison")
     );
 
-    private static final long SPAWN_INTERVAL_TICKS = 20L * 20L;
+    private static final long SPAWN_INTERVAL_TICKS = 2L * 2L;
     private static final int RIFT_LIFETIME_TICKS = 20 * 180;
-    private static final int SPAWN_CLUSTERS = 4;
+    private static final int SPAWN_CLUSTERS = 128;
     private static final int SPAWN_ATTEMPTS_PER_CLUSTER = 24;
     private static final int OVERWORLD_MIN_DISTANCE = 24;
     private static final int OVERWORLD_MAX_DISTANCE = 72;
     private static final int PRISON_MIN_DISTANCE = 560;
-    private static final int PRISON_MAX_DISTANCE = 700;
+    private static final int PRISON_MAX_DISTANCE = 70000;
     private static final int NEARBY_RIFT_RADIUS = 16;
 
     private final Map<ResourceKey<Level>, Long> nextSpawnTick = new HashMap<>();
@@ -105,6 +105,7 @@ public final class RiftManager {
                 }
 
                 level.setBlock(pos, ModBlocks.RIFT.get().defaultBlockState(), 3);
+                level.scheduleTick(pos, ModBlocks.RIFT.get(), RIFT_LIFETIME_TICKS);
                 level.scheduleTick(pos, ModBlocks.RIFT.get(), RIFT_LIFETIME_TICKS);
                 return true;
             }
@@ -175,7 +176,7 @@ public final class RiftManager {
                     targetLevel,
                     overworldSpawn.getX(),
                     overworldSpawn.getZ(),
-                    10_000,
+                    10000000,
                     300
             );
             messageKey = "message.tutorialmod.rift.to_overworld";
