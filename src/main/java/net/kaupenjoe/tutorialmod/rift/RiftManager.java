@@ -44,7 +44,15 @@ public final class RiftManager {
     private static final int PRISON_MAX_DISTANCE = 70000;
     private static final int NEARBY_RIFT_RADIUS = 16;
 
+    private static final long DIAGNOSTIC_LOG_INTERVAL_TICKS = 20L * 10L;
+
     private final Map<ResourceKey<Level>, Long> nextSpawnTick = new HashMap<>();
+
+    private final Map<ResourceKey<Level>, Long> nextDiagnosticLogTick =
+            new HashMap<>();
+
+    private final Map<ResourceKey<Level>, Long> nextExceptionLogTick =
+            new HashMap<>();
 
     @SubscribeEvent
     public void onLevelTick(LevelTickEvent.Post event) {
@@ -53,33 +61,82 @@ public final class RiftManager {
         }
 
         ResourceKey<Level> dimension = level.dimension();
+
         boolean isPrison = dimension.equals(PRISON_DIMENSION);
+
         if (!isPrison && !dimension.equals(Level.OVERWORLD)) {
             return;
         }
 
         List<ServerPlayer> players = level.players();
+
         if (players.isEmpty()) {
             return;
         }
 
         long gameTime = level.getGameTime();
+
         if (gameTime < nextSpawnTick.getOrDefault(dimension, 0L)) {
             return;
         }
-        nextSpawnTick.put(dimension, gameTime + SPAWN_INTERVAL_TICKS);
 
-        ServerPlayer player = players.get(level.getRandom().nextInt(players.size()));
-        trySpawnRift(level, player, isPrison);
+        nextSpawnTick.put(
+                dimension,
+                gameTime + SPAWN_INTERVAL_TICKS
+        );
+
+        ServerPlayer player =
+                players.get(level.getRandom().nextInt(players.size()));
+
+        try {
+            trySpawnRift(level, player, isPrison);
+        } catch (RuntimeException exception) {
+            if (shouldLog(nextExceptionLogTick, level)) {
+                LOGGER.error(
+                        "Unexpected exception while spawning a rift in dimension "
+                                + dimension.location()
+                                + " near player at "
+                                + player.blockPosition(),
+                        exception
+                );
+            }
+        }
     }
 
-    private boolean trySpawnRift(ServerLevel level, ServerPlayer player, boolean isPrison) {
-        int minDistance = isPrison ? PRISON_MIN_DISTANCE : OVERWORLD_MIN_DISTANCE;
-        int maxDistance = isPrison ? PRISON_MAX_DISTANCE : OVERWORLD_MAX_DISTANCE;
+    private boolean trySpawnRift(
+            ServerLevel level,
+            ServerPlayer player,
+            boolean isPrison
+    ) {
+        int minDistance = isPrison
+                ? PRISON_MIN_DISTANCE
+                : OVERWORLD_MIN_DISTANCE;
+
+        int maxDistance = isPrison
+                ? PRISON_MAX_DISTANCE
+                : OVERWORLD_MAX_DISTANCE;
+
+        int checkedPositions = 0;
+        int noSurface = 0;
+        int wrongBiome = 0;
+        int unsuitableSurface = 0;
+        int nearbyRift = 0;
+        int noDestination = 0;
+        int entityTypeUnavailable = 0;
+        int addEntityRejected = 0;
+
+        ResourceKey<Level> destinationDimension =
+                isPrison ? Level.OVERWORLD : PRISON_DIMENSION;
 
         for (int cluster = 0; cluster < SPAWN_CLUSTERS; cluster++) {
-            double angle = level.getRandom().nextDouble() * Math.PI * 2.0;
-            int distance = minDistance + level.getRandom().nextInt(maxDistance - minDistance + 1);
+            double angle =
+                    level.getRandom().nextDouble() * Math.PI * 2.0;
+
+            int distance = minDistance
+                    + level.getRandom().nextInt(
+                    maxDistance - minDistance + 1
+            );
+
             int centerX;
             int centerZ;
 
@@ -87,46 +144,193 @@ public final class RiftManager {
                 centerX = (int) Math.floor(Math.cos(angle) * distance);
                 centerZ = (int) Math.floor(Math.sin(angle) * distance);
             } else {
-                centerX = (int) Math.floor(player.getX() + Math.cos(angle) * distance);
-                centerZ = (int) Math.floor(player.getZ() + Math.sin(angle) * distance);
+                centerX = (int) Math.floor(
+                        player.getX() + Math.cos(angle) * distance
+                );
+                centerZ = (int) Math.floor(
+                        player.getZ() + Math.sin(angle) * distance
+                );
             }
 
-            for (int attempt = 0; attempt < SPAWN_ATTEMPTS_PER_CLUSTER; attempt++) {
-                int x = centerX + level.getRandom().nextInt(33) - 16;
-                int z = centerZ + level.getRandom().nextInt(33) - 16;
+            for (int attempt = 0;
+                 attempt < SPAWN_ATTEMPTS_PER_CLUSTER;
+                 attempt++) {
+
+                int x = centerX
+                        + level.getRandom().nextInt(33) - 16;
+
+                int z = centerZ
+                        + level.getRandom().nextInt(33) - 16;
+
+                checkedPositions++;
+
                 BlockPos pos = getSurfacePosition(level, x, z);
+
                 if (pos == null) {
+                    noSurface++;
                     continue;
                 }
 
                 if (isPrison && !isFrozenOcean(level, pos)) {
+                    wrongBiome++;
                     continue;
                 }
 
-                if (!isSuitableRiftSurface(level, pos) || hasNearbyRift(level, pos)) {
+                if (!isSuitableRiftSurface(level, pos)) {
+                    unsuitableSurface++;
                     continue;
                 }
 
-                ResourceKey<Level> destinationDimension = isPrison ? Level.OVERWORLD : PRISON_DIMENSION;
-                BlockPos destination = findDestination(level, isPrison);
+                if (hasNearbyRift(level, pos)) {
+                    nearbyRift++;
+                    continue;
+                }
+
+                ServerLevel targetLevel =
+                        level.getServer().getLevel(destinationDimension);
+
+                if (targetLevel == null) {
+                    noDestination++;
+
+                    logSpawnFailure(
+                            level,
+                            player,
+                            "Target dimension is not available: "
+                                    + destinationDimension.location(),
+                            checkedPositions,
+                            noSurface,
+                            wrongBiome,
+                            unsuitableSurface,
+                            nearbyRift,
+                            noDestination,
+                            entityTypeUnavailable,
+                            addEntityRejected
+                    );
+
+                    return false;
+                }
+
+                BlockPos destination =
+                        findDestination(level, isPrison);
+
                 if (destination == null) {
+                    noDestination++;
+
+                    logSpawnFailure(
+                            level,
+                            player,
+                            "Could not find a safe destination in "
+                                    + destinationDimension.location()
+                                    + "; source candidate=" + pos,
+                            checkedPositions,
+                            noSurface,
+                            wrongBiome,
+                            unsuitableSurface,
+                            nearbyRift,
+                            noDestination,
+                            entityTypeUnavailable,
+                            addEntityRejected
+                    );
+
                     return false;
                 }
 
                 RiftEntity rift = ModEntities.RIFT.get().create(level);
+
                 if (rift == null) {
+                    entityTypeUnavailable++;
                     continue;
                 }
 
                 rift.setDestination(destinationDimension, destination);
-                rift.setPos(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D);
+
+                rift.setPos(
+                        pos.getX() + 0.5D,
+                        pos.getY(),
+                        pos.getZ() + 0.5D
+                );
+
                 if (level.addFreshEntity(rift)) {
+                    rift.ensurePortalMarkers(level);
                     return true;
                 }
+
+                addEntityRejected++;
             }
         }
 
+        logSpawnFailure(
+                level,
+                player,
+                "Exhausted all spawn attempts without creating a rift",
+                checkedPositions,
+                noSurface,
+                wrongBiome,
+                unsuitableSurface,
+                nearbyRift,
+                noDestination,
+                entityTypeUnavailable,
+                addEntityRejected
+        );
+
         return false;
+    }
+
+    private boolean shouldLog(
+            Map<ResourceKey<Level>, Long> cooldowns,
+            ServerLevel level
+    ) {
+        ResourceKey<Level> dimension = level.dimension();
+        long gameTime = level.getGameTime();
+
+        if (gameTime < cooldowns.getOrDefault(dimension, 0L)) {
+            return false;
+        }
+
+        cooldowns.put(
+                dimension,
+                gameTime + DIAGNOSTIC_LOG_INTERVAL_TICKS
+        );
+
+        return true;
+    }
+
+    private void logSpawnFailure(
+            ServerLevel level,
+            ServerPlayer player,
+            String reason,
+            int checkedPositions,
+            int noSurface,
+            int wrongBiome,
+            int unsuitableSurface,
+            int nearbyRift,
+            int noDestination,
+            int entityTypeUnavailable,
+            int addEntityRejected
+    ) {
+        if (!shouldLog(nextDiagnosticLogTick, level)) {
+            return;
+        }
+
+        LOGGER.warn(
+                "Rift spawn failed: "
+                        + "dimension={}, playerPos={}, reason={}, "
+                        + "checkedPositions={}, noSurface={}, wrongBiome={}, "
+                        + "unsuitableSurface={}, nearbyRift={}, "
+                        + "noDestination={}, entityTypeUnavailable={}, "
+                        + "addFreshEntityRejected={}",
+                level.dimension().location(),
+                player.blockPosition(),
+                reason,
+                checkedPositions,
+                noSurface,
+                wrongBiome,
+                unsuitableSurface,
+                nearbyRift,
+                noDestination,
+                entityTypeUnavailable,
+                addEntityRejected
+        );
     }
 
     private BlockPos findDestination(ServerLevel sourceLevel, boolean isPrison) {

@@ -76,6 +76,13 @@ description='''${mod_description}'''
     # Side this dependency is applied on - BOTH, CLIENT, or SERVER
     side="BOTH"
 
+    [[dependencies.${mod_id}]]
+    modId = "aeroportals"
+    type = "optional"
+    versionRange = "[1.3.0,)"
+    ordering = "AFTER"
+    side = "BOTH"
+
 # Here's another dependency
 [[dependencies.${mod_id}]]
     modId="minecraft"

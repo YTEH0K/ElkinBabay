@@ -14,6 +14,7 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
+import net.kaupenjoe.tutorialmod.block.custom.RiftMarkerBlock;
 
 import java.util.function.Supplier;
 
@@ -27,6 +28,18 @@ public class ModBlocks {
     public static final DeferredBlock<Block> BISMUTH_ORE = registerBlock("bismuth_ore",
             () -> new DropExperienceBlock(UniformInt.of(2, 4),
                     BlockBehaviour.Properties.of().strength(3f).requiresCorrectToolForDrops().sound(SoundType.STONE)));
+
+    public static final DeferredBlock<RiftMarkerBlock> RIFT_MARKER =
+            BLOCKS.register(
+                    "rift_marker",
+                    () -> new RiftMarkerBlock(
+                            BlockBehaviour.Properties.of()
+                                    .strength(-1.0f, 3600000.0f)
+                                    .noCollission()
+                                    .noOcclusion()
+                                    .noLootTable()
+                    )
+            );
 
     public static final DeferredBlock<Block> BISMUTH_DEEPSLATE_ORE = registerBlock("bismuth_deepslate_ore",
             () -> new DropExperienceBlock(UniformInt.of(3, 6),

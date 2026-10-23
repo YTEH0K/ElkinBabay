@@ -23,6 +23,8 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import org.slf4j.Logger;
+import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
+import net.neoforged.fml.ModList;
 
 @Mod(TutorialMod.MOD_ID)
 public class TutorialMod {
@@ -45,6 +47,11 @@ public class TutorialMod {
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
+        if (ModList.get().isLoaded("aeroportals")) {
+            event.enqueueWork(
+                    AeroPortalsRiftIntegration::register
+            );
+        }
     }
 
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
