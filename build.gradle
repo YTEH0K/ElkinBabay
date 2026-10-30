@@ -32,6 +32,7 @@ repositories {
         url = "https://maven.ryanhcode.dev/releases"
         content {
             includeGroup("dev.ryanhcode.sable")
+            includeGroup("dev.ryanhcode.sable-companion")
         }
     }
 }
@@ -134,6 +135,10 @@ dependencies {
     }
 
     compileOnly("dev.ryanhcode.sable:sable-neoforge-1.21.1:2.0.3") {
+        transitive = false
+    }
+
+    compileOnly("dev.ryanhcode.sable-companion:sable-companion-common-1.21.1:1.6.0") {
         transitive = false
     }
     // Example optional mod dependency with JEI

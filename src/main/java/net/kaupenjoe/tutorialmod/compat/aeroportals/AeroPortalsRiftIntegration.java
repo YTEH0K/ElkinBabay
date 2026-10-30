@@ -44,10 +44,6 @@ public final class AeroPortalsRiftIntegration {
                 return PORTAL_ID;
             }
 
-            @Override
-            public Collection<Block> matchedBlocks() {
-                return List.of(ModBlocks.RIFT_MARKER.get());
-            }
 
             @Override
             public boolean matches(BlockState state) {
