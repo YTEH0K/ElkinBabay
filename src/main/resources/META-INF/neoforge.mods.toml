@@ -83,6 +83,13 @@ description='''${mod_description}'''
     ordering = "AFTER"
     side = "BOTH"
 
+    [[dependencies.${mod_id}]]
+    modId = "biomeswevegone"
+    type = "optional"
+    versionRange = "[0,)"
+    ordering = "AFTER"
+    side = "BOTH"
+
 # Here's another dependency
 [[dependencies.${mod_id}]]
     modId="minecraft"

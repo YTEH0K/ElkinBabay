@@ -1,3 +1,4 @@
+
 package net.kaupenjoe.tutorialmod.worldgen;
 
 import com.mojang.serialization.MapCodec;
@@ -6,15 +7,25 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.RegistryOps;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.biome.Climate;
-import net.minecraft.world.level.levelgen.DensityFunction;
 
 import java.util.stream.Stream;
 
 public class RadialBiomeSource extends BiomeSource {
+
+    private static final ResourceKey<Biome> FORGOTTEN_FOREST =
+            ResourceKey.create(
+                    Registries.BIOME,
+                    ResourceLocation.fromNamespaceAndPath(
+                            "biomeswevegone",
+                            "forgotten_forest"
+                    )
+            );
 
     public static final MapCodec<RadialBiomeSource> CODEC =
             RecordCodecBuilder.mapCodec(instance ->
@@ -29,6 +40,10 @@ public class RadialBiomeSource extends BiomeSource {
         this.biomes = biomes;
     }
 
+    private Holder<Biome> getIslandBiome() {
+        return biomes.getOrThrow(FORGOTTEN_FOREST);
+    }
+
     @Override
     protected MapCodec<? extends BiomeSource> codec() {
         return CODEC;
@@ -37,7 +52,7 @@ public class RadialBiomeSource extends BiomeSource {
     @Override
     protected Stream<Holder<Biome>> collectPossibleBiomes() {
         return Stream.of(
-                biomes.getOrThrow(Biomes.OCEAN),
+                getIslandBiome(),
                 biomes.getOrThrow(Biomes.OCEAN),
                 biomes.getOrThrow(Biomes.DEEP_FROZEN_OCEAN)
         );
@@ -57,10 +72,14 @@ public class RadialBiomeSource extends BiomeSource {
                 blockX * blockX + blockZ * blockZ
         );
 
+        if (distance <= 150) {
+            return getIslandBiome();
+        }
 
-        if (distance <= 150) return biomes.getOrThrow(Biomes.OCEAN);
-        if (distance <= 550) return biomes.getOrThrow(Biomes.OCEAN);
+        if (distance <= 550) {
+            return getIslandBiome();
+        }
+
         return biomes.getOrThrow(Biomes.DEEP_FROZEN_OCEAN);
-
     }
 }
