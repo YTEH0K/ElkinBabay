@@ -35,8 +35,8 @@ public final class RiftManager {
             ResourceLocation.fromNamespaceAndPath(TutorialMod.MOD_ID, "prison")
     );
 
-    private static final long SPAWN_INTERVAL_TICKS = 2L * 2L;
-    private static final int SPAWN_CLUSTERS = 128;
+    private static final long SPAWN_INTERVAL_TICKS = 20L * 20L;
+    private static final int SPAWN_CLUSTERS = 4;
     private static final int SPAWN_ATTEMPTS_PER_CLUSTER = 24;
     private static final int OVERWORLD_MIN_DISTANCE = 24;
     private static final int OVERWORLD_MAX_DISTANCE = 72;
@@ -347,7 +347,7 @@ public final class RiftManager {
                     targetLevel,
                     overworldSpawn.getX(),
                     overworldSpawn.getZ(),
-                    10000000,
+                    100000,
                     300
             );
         }

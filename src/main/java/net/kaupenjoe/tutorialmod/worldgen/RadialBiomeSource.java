@@ -19,13 +19,10 @@ import java.util.stream.Stream;
 public class RadialBiomeSource extends BiomeSource {
 
     private static final ResourceKey<Biome> FORGOTTEN_FOREST =
-            ResourceKey.create(
-                    Registries.BIOME,
-                    ResourceLocation.fromNamespaceAndPath(
-                            "biomeswevegone",
-                            "forgotten_forest"
-                    )
-            );
+            createBiomeKey("biomeswevegone", "forgotten_forest");
+
+    private static final ResourceKey<Biome> CRAG_GARDENS =
+            createBiomeKey("biomeswevegone", "crag_gardens");
 
     public static final MapCodec<RadialBiomeSource> CODEC =
             RecordCodecBuilder.mapCodec(instance ->
@@ -40,8 +37,19 @@ public class RadialBiomeSource extends BiomeSource {
         this.biomes = biomes;
     }
 
-    private Holder<Biome> getIslandBiome() {
-        return biomes.getOrThrow(FORGOTTEN_FOREST);
+    private static ResourceKey<Biome> createBiomeKey(
+            String modId,
+            String biomeId
+    ) {
+        return ResourceKey.create(
+                Registries.BIOME,
+                ResourceLocation.fromNamespaceAndPath(modId, biomeId)
+        );
+    }
+
+    private Holder<Biome> getBiomeOrOcean(ResourceKey<Biome> biomeKey) {
+        return biomes.get(biomeKey)
+                .orElseGet(() -> biomes.getOrThrow(Biomes.OCEAN));
     }
 
     @Override
@@ -52,10 +60,10 @@ public class RadialBiomeSource extends BiomeSource {
     @Override
     protected Stream<Holder<Biome>> collectPossibleBiomes() {
         return Stream.of(
-                getIslandBiome(),
-                biomes.getOrThrow(Biomes.OCEAN),
+                getBiomeOrOcean(FORGOTTEN_FOREST),
+                getBiomeOrOcean(CRAG_GARDENS),
                 biomes.getOrThrow(Biomes.DEEP_FROZEN_OCEAN)
-        );
+        ).distinct();
     }
 
     @Override
@@ -72,12 +80,13 @@ public class RadialBiomeSource extends BiomeSource {
                 blockX * blockX + blockZ * blockZ
         );
 
-        if (distance <= 150) {
-            return getIslandBiome();
+        if (distance <= 800) {
+            return getBiomeOrOcean(FORGOTTEN_FOREST);
         }
 
-        if (distance <= 550) {
-            return getIslandBiome();
+
+        if (distance <= 1000) {
+            return getBiomeOrOcean(CRAG_GARDENS);
         }
 
         return biomes.getOrThrow(Biomes.DEEP_FROZEN_OCEAN);
