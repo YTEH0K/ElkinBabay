@@ -19,7 +19,7 @@ public final class ModEntities {
             () -> EntityType.Builder.<RiftEntity>of(RiftEntity::new, MobCategory.MISC)
                     .sized(3.0F, 4.0F)
                     .clientTrackingRange(12)
-                    .updateInterval(1)
+                    .updateInterval(20)
                     .build("rift")
     );
 

@@ -31,7 +31,6 @@ public class RiftEntity extends Entity {
 
     private ResourceKey<Level> destinationDimension;
     private BlockPos destinationPos;
-
     private int remainingLifetimeTicks = INITIAL_LIFETIME_TICKS;
 
     public RiftEntity(EntityType<? extends RiftEntity> entityType, Level level) {
@@ -163,8 +162,6 @@ public class RiftEntity extends Entity {
         if (!(this.level() instanceof ServerLevel sourceLevel)) {
             return;
         }
-
-        ensurePortalMarkers(sourceLevel);
 
 
         // Visual effects: portal particles.
