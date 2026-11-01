@@ -7,6 +7,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredRegister;
+import net.kaupenjoe.tutorialmod.entity.custom.AggressiveRiftEntity;
 
 import java.util.function.Supplier;
 
@@ -22,6 +23,19 @@ public final class ModEntities {
                     .updateInterval(20)
                     .build("rift")
     );
+
+    public static final Supplier<EntityType<AggressiveRiftEntity>> AGGRESSIVE_RIFT =
+            ENTITY_TYPES.register(
+                    "aggressive_rift",
+                    () -> EntityType.Builder.<AggressiveRiftEntity>of(
+                                    AggressiveRiftEntity::new,
+                                    MobCategory.MISC
+                            )
+                            .sized(2.5F, 3.5F)
+                            .clientTrackingRange(16)
+                            .updateInterval(20)
+                            .build("aggressive_rift")
+            );
 
     private ModEntities() {
     }

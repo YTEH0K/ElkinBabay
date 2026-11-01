@@ -29,6 +29,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.kaupenjoe.tutorialmod.client.renderer.AggressiveRiftRenderer;
 
 @Mod(TutorialMod.MOD_ID)
 public class TutorialMod {
@@ -137,6 +138,10 @@ public class TutorialMod {
         @SubscribeEvent
         public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
             event.registerEntityRenderer(ModEntities.RIFT.get(), RiftRenderer::new);
+            event.registerEntityRenderer(
+                    ModEntities.AGGRESSIVE_RIFT.get(),
+                    AggressiveRiftRenderer::new
+            );
         }
     }
 }

@@ -21,7 +21,10 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import org.slf4j.Logger;
+import net.kaupenjoe.tutorialmod.entity.custom.AggressiveRiftEntity;
+import net.minecraft.world.level.material.Fluids;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,8 +45,15 @@ public final class RiftManager {
     private static final int PLAYER_MAX_DISTANCE = 72;
     private static final int PRISON_MIN_DISTANCE = 560;
     private static final int NEARBY_RIFT_RADIUS = 16;
-
     private static final long DIAGNOSTIC_LOG_INTERVAL_TICKS = 20L * 10L;
+    private static final long AGGRESSIVE_RIFT_INTERVAL_TICKS = 20L * 60L;
+
+    private static final double AGGRESSIVE_RIFT_SPAWN_RADIUS = 15.0D;
+    private static final double AGGRESSIVE_RIFT_TELEPORT_RADIUS = 100.0D;
+
+    private static final int AGGRESSIVE_RIFT_DESTINATION_RADIUS = 50_000;
+
+    private long nextAggressiveRiftSpawnTick = -1L;
 
     private final Map<ResourceKey<Level>, Long> nextSpawnTick = new HashMap<>();
 
@@ -328,6 +338,276 @@ public final class RiftManager {
                 entityTypeUnavailable,
                 addEntityRejected
         );
+    }
+
+    private boolean hasNearbyAggressiveRift(
+            ServerLevel level,
+            List<ServerPlayer> players
+    ) {
+        for (ServerPlayer player : players) {
+            AABB bounds = new AABB(
+                    player.getX() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                    player.getY() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                    player.getZ() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                    player.getX() + AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                    player.getY() + AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                    player.getZ() + AGGRESSIVE_RIFT_TELEPORT_RADIUS
+            );
+
+            if (!level.getEntitiesOfClass(
+                    AggressiveRiftEntity.class,
+                    bounds,
+                    Entity::isAlive
+            ).isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Vec3 findAggressiveRiftSpawnPosition(
+            ServerLevel level,
+            ServerPlayer player
+    ) {
+        for (int attempt = 0; attempt < 64; attempt++) {
+            double offsetX =
+                    level.getRandom().nextDouble() * 30.0D - 15.0D;
+
+            double offsetY =
+                    level.getRandom().nextDouble() * 8.0D - 4.0D;
+
+            double offsetZ =
+                    level.getRandom().nextDouble() * 30.0D - 15.0D;
+
+            double distanceSquared =
+                    offsetX * offsetX
+                            + offsetY * offsetY
+                            + offsetZ * offsetZ;
+
+            if (distanceSquared >
+                    AGGRESSIVE_RIFT_SPAWN_RADIUS * AGGRESSIVE_RIFT_SPAWN_RADIUS) {
+                continue;
+            }
+
+            double x = player.getX() + offsetX;
+            double y = player.getY() + offsetY;
+            double z = player.getZ() + offsetZ;
+
+            BlockPos pos = BlockPos.containing(x, y, z);
+
+            if (pos.getY() <= level.getMinBuildHeight() + 1
+                    || pos.getY() >= level.getMaxBuildHeight() - 3) {
+                continue;
+            }
+
+            if (!level.getBlockState(pos).isAir()
+                    || !level.getBlockState(pos.above()).isAir()
+                    || !level.getFluidState(pos).isEmpty()) {
+                continue;
+            }
+
+            return new Vec3(x, y, z);
+        }
+
+        return player.position().add(0.0D, 1.0D, 0.0D);
+    }
+
+    public static int teleportPlayersFromAggressiveRift(
+            ServerLevel level,
+            Vec3 riftPosition,
+            double radius,
+            int worldRadius
+    ) {
+        if (!level.dimension().equals(Level.OVERWORLD)) {
+            return 0;
+        }
+
+        AABB searchBounds = new AABB(
+                riftPosition.x - radius,
+                riftPosition.y - radius,
+                riftPosition.z - radius,
+                riftPosition.x + radius,
+                riftPosition.y + radius,
+                riftPosition.z + radius
+        );
+
+        List<ServerPlayer> nearbyPlayers = new ArrayList<>();
+
+        for (ServerPlayer player : level.getEntitiesOfClass(
+                ServerPlayer.class,
+                searchBounds
+        )) {
+            double dx = player.getX() - riftPosition.x;
+            double dy = player.getY() - riftPosition.y;
+            double dz = player.getZ() - riftPosition.z;
+
+            if (dx * dx + dy * dy + dz * dz <= radius * radius) {
+                nearbyPlayers.add(player);
+            }
+        }
+
+        if (nearbyPlayers.isEmpty()) {
+            return 0;
+        }
+
+        BlockPos destination = findRandomAggressiveDestination(
+                level,
+                worldRadius
+        );
+
+        if (destination == null) {
+            LOGGER.error(
+                    "Aggressive rift could not find a safe destination within {} blocks.",
+                    worldRadius
+            );
+            return 0;
+        }
+
+        int teleportedPlayers = 0;
+
+        for (ServerPlayer player : nearbyPlayers) {
+            boolean teleported = player.teleportTo(
+                    level,
+                    destination.getX() + 0.5D,
+                    destination.getY(),
+                    destination.getZ() + 0.5D,
+                    Set.of(),
+                    player.getYRot(),
+                    player.getXRot()
+            );
+
+            if (!teleported) {
+                continue;
+            }
+
+            player.setDeltaMovement(Vec3.ZERO);
+            teleportedPlayers++;
+        }
+
+        LOGGER.info(
+                "Aggressive rift teleported {} players to {}",
+                teleportedPlayers,
+                destination
+        );
+
+        return teleportedPlayers;
+    }
+
+    private static BlockPos findRandomAggressiveDestination(
+            ServerLevel level,
+            int radius
+    ) {
+        for (int attempt = 0; attempt < 8; attempt++) {
+            double angle =
+                    level.getRandom().nextDouble() * Math.PI * 2.0D;
+
+            double distance =
+                    Math.sqrt(level.getRandom().nextDouble()) * radius;
+
+            int x = (int) Math.floor(Math.cos(angle) * distance);
+            int z = (int) Math.floor(Math.sin(angle) * distance);
+
+            BlockPos pos = level.getHeightmapPos(
+                    Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    new BlockPos(x, level.getMinBuildHeight(), z)
+            );
+
+            if (isSuitableAggressiveDestination(level, pos)) {
+                return pos;
+            }
+        }
+
+        return null;
+    }
+
+    private static boolean isSuitableAggressiveDestination(
+            ServerLevel level,
+            BlockPos pos
+    ) {
+        if (pos.getY() <= level.getMinBuildHeight() + 1
+                || pos.getY() >= level.getMaxBuildHeight() - 2
+                || !level.getWorldBorder().isWithinBounds(pos)) {
+            return false;
+        }
+
+        BlockState feet = level.getBlockState(pos);
+        BlockState head = level.getBlockState(pos.above());
+
+        if (!feet.isAir()
+                || !head.isAir()
+                || !level.getFluidState(pos).isEmpty()
+                || !level.getFluidState(pos.above()).isEmpty()) {
+            return false;
+        }
+
+        BlockPos floorPos = pos.below();
+        BlockState floor = level.getBlockState(floorPos);
+
+        return floor.isFaceSturdy(level, floorPos, Direction.UP)
+                || level.getFluidState(floorPos).is(Fluids.WATER);
+    }
+
+    @SubscribeEvent
+    public void onAggressiveRiftTick(LevelTickEvent.Post event) {
+        if (!(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+
+        if (!level.dimension().equals(Level.OVERWORLD)) {
+            return;
+        }
+
+        List<ServerPlayer> players = level.players();
+
+        if (players.isEmpty()) {
+            return;
+        }
+
+        long gameTime = level.getGameTime();
+
+        if (nextAggressiveRiftSpawnTick < 0L) {
+            nextAggressiveRiftSpawnTick =
+                    gameTime + AGGRESSIVE_RIFT_INTERVAL_TICKS;
+            return;
+        }
+
+        if (gameTime < nextAggressiveRiftSpawnTick) {
+            return;
+        }
+
+        nextAggressiveRiftSpawnTick =
+                gameTime + AGGRESSIVE_RIFT_INTERVAL_TICKS;
+
+        if (hasNearbyAggressiveRift(level, players)) {
+            return;
+        }
+
+        ServerPlayer player =
+                players.get(level.getRandom().nextInt(players.size()));
+
+        Vec3 spawnPosition = findAggressiveRiftSpawnPosition(level, player);
+
+        AggressiveRiftEntity rift =
+                ModEntities.AGGRESSIVE_RIFT.get().create(level);
+
+        if (rift == null) {
+            return;
+        }
+
+        rift.setPos(
+                spawnPosition.x,
+                spawnPosition.y,
+                spawnPosition.z
+        );
+
+        if (level.addFreshEntity(rift)) {
+            LOGGER.info(
+                    "Aggressive rift spawned near player {} at {}",
+                    player.getName().getString(),
+                    spawnPosition
+            );
+        }
     }
 
     private BlockPos findDestination(ServerLevel sourceLevel, boolean isPrison) {
