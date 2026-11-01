@@ -38,10 +38,9 @@ public final class RiftManager {
     private static final long SPAWN_INTERVAL_TICKS = 20L * 20L;
     private static final int SPAWN_CLUSTERS = 4;
     private static final int SPAWN_ATTEMPTS_PER_CLUSTER = 24;
-    private static final int OVERWORLD_MIN_DISTANCE = 24;
-    private static final int OVERWORLD_MAX_DISTANCE = 72;
+    private static final int PLAYER_MIN_DISTANCE = 24;
+    private static final int PLAYER_MAX_DISTANCE = 72;
     private static final int PRISON_MIN_DISTANCE = 560;
-    private static final int PRISON_MAX_DISTANCE = 70000;
     private static final int NEARBY_RIFT_RADIUS = 16;
 
     private static final long DIAGNOSTIC_LOG_INTERVAL_TICKS = 20L * 10L;
@@ -108,13 +107,8 @@ public final class RiftManager {
             ServerPlayer player,
             boolean isPrison
     ) {
-        int minDistance = isPrison
-                ? PRISON_MIN_DISTANCE
-                : OVERWORLD_MIN_DISTANCE;
-
-        int maxDistance = isPrison
-                ? PRISON_MAX_DISTANCE
-                : OVERWORLD_MAX_DISTANCE;
+        int minDistance = PLAYER_MIN_DISTANCE;
+        int maxDistance = PLAYER_MAX_DISTANCE;
 
         int checkedPositions = 0;
         int noSurface = 0;
@@ -137,20 +131,13 @@ public final class RiftManager {
                     maxDistance - minDistance + 1
             );
 
-            int centerX;
-            int centerZ;
+            int centerX = (int) Math.floor(
+                    player.getX() + Math.cos(angle) * distance
+            );
 
-            if (isPrison) {
-                centerX = (int) Math.floor(Math.cos(angle) * distance);
-                centerZ = (int) Math.floor(Math.sin(angle) * distance);
-            } else {
-                centerX = (int) Math.floor(
-                        player.getX() + Math.cos(angle) * distance
-                );
-                centerZ = (int) Math.floor(
-                        player.getZ() + Math.sin(angle) * distance
-                );
-            }
+            int centerZ = (int) Math.floor(
+                    player.getZ() + Math.sin(angle) * distance
+            );
 
             for (int attempt = 0;
                  attempt < SPAWN_ATTEMPTS_PER_CLUSTER;
@@ -163,6 +150,16 @@ public final class RiftManager {
                         + level.getRandom().nextInt(33) - 16;
 
                 checkedPositions++;
+
+                if (isPrison) {
+                    long distanceFromIslandSquared =
+                            (long) x * x + (long) z * z;
+
+                    if (distanceFromIslandSquared
+                            < (long) PRISON_MIN_DISTANCE * PRISON_MIN_DISTANCE) {
+                        continue;
+                    }
+                }
 
                 BlockPos pos = getSurfacePosition(level, x, z);
 
@@ -347,7 +344,7 @@ public final class RiftManager {
                     targetLevel,
                     overworldSpawn.getX(),
                     overworldSpawn.getZ(),
-                    100000,
+                    50000,
                     300
             );
         }
@@ -385,6 +382,63 @@ public final class RiftManager {
     private static boolean isFrozenOcean(ServerLevel level, BlockPos pos) {
         var biome = level.getBiome(pos);
         return biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN);
+    }
+
+    public static boolean teleportToPrison(ServerPlayer player) {
+        if (!(player.level() instanceof ServerLevel sourceLevel)) {
+            return false;
+        }
+
+        // Если игрок уже возродился в тюрьме, ничего делать не нужно.
+        if (sourceLevel.dimension().equals(PRISON_DIMENSION)) {
+            return true;
+        }
+
+        ServerLevel prisonLevel =
+                sourceLevel.getServer().getLevel(PRISON_DIMENSION);
+
+        if (prisonLevel == null) {
+            LOGGER.error("Prison dimension is not available.");
+            return false;
+        }
+
+        BlockPos destination = findRandomSafePosition(
+                prisonLevel,
+                0,
+                0,
+                220,
+                300
+        );
+
+        if (destination == null) {
+            LOGGER.error("Could not find a safe respawn position in prison.");
+            return false;
+        }
+
+        boolean teleported = player.teleportTo(
+                prisonLevel,
+                destination.getX() + 0.5,
+                destination.getY(),
+                destination.getZ() + 0.5,
+                Set.of(),
+                player.getYRot(),
+                player.getXRot()
+        );
+
+        if (!teleported) {
+            LOGGER.error("Failed to teleport player to prison after death.");
+            return false;
+        }
+
+        player.setDeltaMovement(Vec3.ZERO);
+
+        player.sendSystemMessage(
+                net.minecraft.network.chat.Component.translatable(
+                        "message.tutorialmod.rift.to_prison"
+                )
+        );
+
+        return true;
     }
 
     private static boolean hasNearbyRift(ServerLevel level, BlockPos center) {

@@ -25,11 +25,17 @@ import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import org.slf4j.Logger;
 import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
 import net.neoforged.fml.ModList;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 
 @Mod(TutorialMod.MOD_ID)
 public class TutorialMod {
     public static final String MOD_ID = "tutorialmod";
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final String FIRST_JOIN_TAG =
+            "tutorialmod_first_joined";
 
     public TutorialMod(IEventBus modEventBus, ModContainer modContainer) {
         modEventBus.addListener(this::commonSetup);
@@ -63,6 +69,58 @@ public class TutorialMod {
         if (event.getTabKey() == CreativeModeTabs.BUILDING_BLOCKS) {
             event.accept(ModBlocks.BISMUTH_BLOCK);
             event.accept(ModBlocks.BISMUTH_ORE);
+        }
+    }
+
+    @SubscribeEvent
+    public void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+
+        RiftManager.teleportToPrison(player);
+    }
+
+    @SubscribeEvent
+    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+
+        if (player.getPersistentData().getBoolean(FIRST_JOIN_TAG)) {
+            return;
+        }
+
+        if (!(player.level() instanceof ServerLevel level)) {
+            return;
+        }
+
+        if (level.dimension().equals(RiftManager.PRISON_DIMENSION)) {
+            player.getPersistentData().putBoolean(FIRST_JOIN_TAG, true);
+            return;
+        }
+
+        if (!level.dimension().equals(Level.OVERWORLD)) {
+            return;
+        }
+
+        if (RiftManager.teleportPlayer(player, level)) {
+            player.getPersistentData().putBoolean(FIRST_JOIN_TAG, true);
+
+            LOGGER.info(
+                    "Player {} was sent to the prison for the first time.",
+                    player.getName().getString()
+            );
+        }
+    }
+
+    @SubscribeEvent
+    public void onPlayerClone(PlayerEvent.Clone event) {
+        if (event.getOriginal().getPersistentData().getBoolean(FIRST_JOIN_TAG)) {
+            event.getEntity().getPersistentData().putBoolean(
+                    FIRST_JOIN_TAG,
+                    true
+            );
         }
     }
 
