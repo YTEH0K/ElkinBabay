@@ -23,7 +23,11 @@ import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import org.slf4j.Logger;
 import net.kaupenjoe.tutorialmod.entity.custom.AggressiveRiftEntity;
 import net.minecraft.world.level.material.Fluids;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 
+import java.util.HashSet;
+import java.util.UUID;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -53,7 +57,17 @@ public final class RiftManager {
 
     private static final int AGGRESSIVE_RIFT_DESTINATION_RADIUS = 50_000;
 
-    private long nextAggressiveRiftSpawnTick = -1L;
+    private static final Map<UUID, AggressiveRiftState> aggressiveRiftStates =
+            new HashMap<>();
+
+    private static final class AggressiveRiftState {
+        private long nextSpawnTick;
+        private UUID activeRiftId;
+
+        private AggressiveRiftState(long nextSpawnTick) {
+            this.nextSpawnTick = nextSpawnTick;
+        }
+    }
 
     private final Map<ResourceKey<Level>, Long> nextSpawnTick = new HashMap<>();
 
@@ -342,28 +356,28 @@ public final class RiftManager {
 
     private boolean hasNearbyAggressiveRift(
             ServerLevel level,
-            List<ServerPlayer> players
+            ServerPlayer player
     ) {
-        for (ServerPlayer player : players) {
-            AABB bounds = new AABB(
-                    player.getX() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
-                    player.getY() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
-                    player.getZ() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
-                    player.getX() + AGGRESSIVE_RIFT_TELEPORT_RADIUS,
-                    player.getY() + AGGRESSIVE_RIFT_TELEPORT_RADIUS,
-                    player.getZ() + AGGRESSIVE_RIFT_TELEPORT_RADIUS
-            );
+        AABB bounds = new AABB(
+                player.getX() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                player.getY() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                player.getZ() - AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                player.getX() + AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                player.getY() + AGGRESSIVE_RIFT_TELEPORT_RADIUS,
+                player.getZ() + AGGRESSIVE_RIFT_TELEPORT_RADIUS
+        );
 
-            if (!level.getEntitiesOfClass(
-                    AggressiveRiftEntity.class,
-                    bounds,
-                    Entity::isAlive
-            ).isEmpty()) {
-                return true;
-            }
-        }
+        double radiusSquared =
+                AGGRESSIVE_RIFT_TELEPORT_RADIUS
+                        * AGGRESSIVE_RIFT_TELEPORT_RADIUS;
 
-        return false;
+        return !level.getEntitiesOfClass(
+                AggressiveRiftEntity.class,
+                bounds,
+                rift -> rift.isAlive()
+                        && rift.position().distanceToSqr(player.position())
+                        <= radiusSquared
+        ).isEmpty();
     }
 
     private static Vec3 findAggressiveRiftSpawnPosition(
@@ -482,6 +496,16 @@ public final class RiftManager {
             }
 
             player.setDeltaMovement(Vec3.ZERO);
+
+            player.addEffect(
+                    new MobEffectInstance(
+                            MobEffects.BLINDNESS,
+                            40
+                    )
+            );
+
+            resetAggressiveRiftTimer(level, player);
+
             teleportedPlayers++;
         }
 
@@ -492,6 +516,40 @@ public final class RiftManager {
         );
 
         return teleportedPlayers;
+    }
+
+    private static void resetAggressiveRiftTimer(
+            ServerLevel level,
+            ServerPlayer player
+    ) {
+        AggressiveRiftState state = aggressiveRiftStates.computeIfAbsent(
+                player.getUUID(),
+                uuid -> new AggressiveRiftState(
+                        level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS
+                )
+        );
+
+        discardActiveAggressiveRift(level, state);
+
+        state.nextSpawnTick =
+                level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS;
+    }
+
+    private static void discardActiveAggressiveRift(
+            ServerLevel level,
+            AggressiveRiftState state
+    ) {
+        if (state.activeRiftId == null) {
+            return;
+        }
+
+        Entity activeRift = level.getEntity(state.activeRiftId);
+
+        if (activeRift instanceof AggressiveRiftEntity) {
+            activeRift.discard();
+        }
+
+        state.activeRiftId = null;
     }
 
     private static BlockPos findRandomAggressiveDestination(
@@ -559,54 +617,87 @@ public final class RiftManager {
         }
 
         List<ServerPlayer> players = level.players();
-
-        if (players.isEmpty()) {
-            return;
-        }
-
         long gameTime = level.getGameTime();
 
-        if (nextAggressiveRiftSpawnTick < 0L) {
-            nextAggressiveRiftSpawnTick =
-                    gameTime + AGGRESSIVE_RIFT_INTERVAL_TICKS;
-            return;
+        Set<UUID> currentPlayerIds = new HashSet<>();
+
+        for (ServerPlayer player : players) {
+            currentPlayerIds.add(player.getUUID());
         }
 
-        if (gameTime < nextAggressiveRiftSpawnTick) {
-            return;
+        // Удаляем таймеры игроков, покинувших Верхний мир или отключившихся.
+        for (UUID playerId : new ArrayList<>(aggressiveRiftStates.keySet())) {
+            if (!currentPlayerIds.contains(playerId)) {
+                AggressiveRiftState state = aggressiveRiftStates.remove(playerId);
+                discardActiveAggressiveRift(level, state);
+            }
         }
 
-        nextAggressiveRiftSpawnTick =
-                gameTime + AGGRESSIVE_RIFT_INTERVAL_TICKS;
+        for (ServerPlayer player : players) {
+            UUID playerId = player.getUUID();
 
-        if (hasNearbyAggressiveRift(level, players)) {
-            return;
-        }
+            AggressiveRiftState state = aggressiveRiftStates.get(playerId);
 
-        ServerPlayer player =
-                players.get(level.getRandom().nextInt(players.size()));
+            // Игрок только вошёл в Верхний мир — запускаем его личный таймер.
+            if (state == null) {
+                aggressiveRiftStates.put(
+                        playerId,
+                        new AggressiveRiftState(
+                                gameTime + AGGRESSIVE_RIFT_INTERVAL_TICKS
+                        )
+                );
 
-        Vec3 spawnPosition = findAggressiveRiftSpawnPosition(level, player);
+                continue;
+            }
 
-        AggressiveRiftEntity rift =
-                ModEntities.AGGRESSIVE_RIFT.get().create(level);
+            // Таймер ещё не закончился.
+            if (gameTime < state.nextSpawnTick) {
+                continue;
+            }
 
-        if (rift == null) {
-            return;
-        }
+            // Проверяем, не существует ли ещё разлома этого игрока.
+            if (state.activeRiftId != null) {
+                Entity activeRift = level.getEntity(state.activeRiftId);
 
-        rift.setPos(
-                spawnPosition.x,
-                spawnPosition.y,
-                spawnPosition.z
-        );
+                if (activeRift instanceof AggressiveRiftEntity
+                        && activeRift.isAlive()) {
+                    continue;
+                }
 
-        if (level.addFreshEntity(rift)) {
-            LOGGER.info(
-                    "Aggressive rift spawned near player {} at {}",
-                    player.getName().getString(),
-                    spawnPosition
+                state.activeRiftId = null;
+            }
+
+            // Если игрок уже находится возле другого разлома,
+            // собственный разлом ему не создаём.
+            if (hasNearbyAggressiveRift(level, player)) {
+                continue;
+            }
+
+            Vec3 spawnPosition =
+                    findAggressiveRiftSpawnPosition(level, player);
+
+            AggressiveRiftEntity rift =
+                    ModEntities.AGGRESSIVE_RIFT.get().create(level);
+
+            if (rift == null) {
+                continue;
+            }
+
+            rift.setPos(
+                    spawnPosition.x,
+                    spawnPosition.y,
+                    spawnPosition.z
             );
+
+            if (level.addFreshEntity(rift)) {
+                state.activeRiftId = rift.getUUID();
+
+                LOGGER.info(
+                        "Aggressive rift spawned near player {} at {}",
+                        player.getName().getString(),
+                        spawnPosition
+                );
+            }
         }
     }
 
