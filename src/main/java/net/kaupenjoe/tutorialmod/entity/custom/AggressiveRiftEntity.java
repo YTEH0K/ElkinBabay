@@ -130,7 +130,7 @@ public class AggressiveRiftEntity extends Entity {
                     serverLevel,
                     this.position(),
                     100.0D,
-                    50_000
+                    50000
             );
 
             this.discard();
