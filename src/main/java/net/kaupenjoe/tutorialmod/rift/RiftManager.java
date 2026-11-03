@@ -556,19 +556,37 @@ public final class RiftManager {
             ServerLevel level,
             int radius
     ) {
-        for (int attempt = 0; attempt < 8; attempt++) {
+        BlockPos spawn = level.getSharedSpawnPos();
+
+        for (int attempt = 0; attempt < 16; attempt++) {
             double angle =
                     level.getRandom().nextDouble() * Math.PI * 2.0D;
 
             double distance =
                     Math.sqrt(level.getRandom().nextDouble()) * radius;
 
-            int x = (int) Math.floor(Math.cos(angle) * distance);
-            int z = (int) Math.floor(Math.sin(angle) * distance);
+            int x = spawn.getX()
+                    + (int) Math.floor(Math.cos(angle) * distance);
+
+            int z = spawn.getZ()
+                    + (int) Math.floor(Math.sin(angle) * distance);
+
+            BlockPos column = new BlockPos(
+                    x,
+                    level.getMinBuildHeight(),
+                    z
+            );
+
+            if (!level.getWorldBorder().isWithinBounds(column)) {
+                continue;
+            }
+
+            // Загружаем или генерируем чанк перед поиском поверхности.
+            level.getChunk(x >> 4, z >> 4);
 
             BlockPos pos = level.getHeightmapPos(
-                    Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    new BlockPos(x, level.getMinBuildHeight(), z)
+                    Heightmap.Types.MOTION_BLOCKING,
+                    column
             );
 
             if (isSuitableAggressiveDestination(level, pos)) {
@@ -691,6 +709,11 @@ public final class RiftManager {
 
             if (level.addFreshEntity(rift)) {
                 state.activeRiftId = rift.getUUID();
+
+                // Защита от повторного появления разлома,
+                // если предыдущая попытка телепортации завершилась неудачно.
+                state.nextSpawnTick =
+                        gameTime + AGGRESSIVE_RIFT_INTERVAL_TICKS;
 
                 LOGGER.info(
                         "Aggressive rift spawned near player {} at {}",
