@@ -25,6 +25,7 @@ import net.kaupenjoe.tutorialmod.entity.custom.AggressiveRiftEntity;
 import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.kaupenjoe.tutorialmod.distortion.DistortionManager;
 
 import java.util.HashSet;
 import java.util.UUID;
@@ -505,6 +506,8 @@ public final class RiftManager {
             );
 
             resetAggressiveRiftTimer(level, player);
+
+            DistortionManager.addDistortion(player, 100);
 
             teleportedPlayers++;
         }

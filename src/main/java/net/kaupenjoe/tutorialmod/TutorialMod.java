@@ -30,6 +30,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.kaupenjoe.tutorialmod.client.renderer.AggressiveRiftRenderer;
+import net.kaupenjoe.tutorialmod.distortion.DistortionManager;
+import net.kaupenjoe.tutorialmod.distortion.ModAttachments;
+import net.kaupenjoe.tutorialmod.distortion.network.DistortionNetwork;
 
 @Mod(TutorialMod.MOD_ID)
 public class TutorialMod {
@@ -42,6 +45,11 @@ public class TutorialMod {
         modEventBus.addListener(this::commonSetup);
         NeoForge.EVENT_BUS.register(this);
         NeoForge.EVENT_BUS.register(new RiftManager());
+        NeoForge.EVENT_BUS.register(new DistortionManager());
+
+        ModAttachments.register(modEventBus);
+
+        modEventBus.addListener(DistortionNetwork::registerPayloads);
 
         ModCreativeModeTabs.register(modEventBus);
         ModItems.register(modEventBus);
