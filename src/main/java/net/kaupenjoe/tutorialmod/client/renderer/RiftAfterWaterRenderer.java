@@ -19,6 +19,9 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import net.minecraft.client.renderer.RenderStateShard;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -118,6 +121,56 @@ public final class RiftAfterWaterRenderer {
 
             visibleRifts.add(rift);
         }
+
+        // PASS 0: внешняя энергетическая дымка.
+        RenderType fogRenderType = RiftFogRenderTypes.ADDITIVE_FOG;
+
+        VertexConsumer fogVertices = buffers.getBuffer(fogRenderType);
+
+        for (RiftEntity rift : visibleRifts) {
+            RiftGeometry geometry = GEOMETRY_CACHE.get(rift.getUUID());
+
+            double x = Mth.lerp(partialTick, rift.xo, rift.getX());
+            double y = Mth.lerp(partialTick, rift.yo, rift.getY());
+            double z = Mth.lerp(partialTick, rift.zo, rift.getZ());
+
+            float age = rift.tickCount + partialTick;
+
+            float pulse =
+                    1.0F + Mth.sin(age * 0.08F) * 0.035F;
+
+            poseStack.pushPose();
+
+            poseStack.translate(
+                    x - cameraPos.x,
+                    y - cameraPos.y,
+                    z - cameraPos.z
+            );
+
+            poseStack.translate(
+                    0.0D,
+                    rift.getBbHeight() / 2.0D,
+                    0.0D
+            );
+
+            poseStack.mulPose(
+                    Axis.YP.rotationDegrees(
+                            geometry.rotationOffset + age * 0.10F
+                    )
+            );
+
+            drawFogLayers(
+                    poseStack,
+                    fogVertices,
+                    geometry,
+                    pulse,
+                    age
+            );
+
+            poseStack.popPose();
+        }
+
+        buffers.endBatch(fogRenderType);
 
         // PASS 1: внутренняя оболочка портала.
         VertexConsumer portalVertices =
@@ -824,6 +877,32 @@ public final class RiftAfterWaterRenderer {
             float radiusScale,
             int alpha
     ) {
+        drawPathTextured(
+                poseStack,
+                vertices,
+                path,
+                sides,
+                pulse,
+                age,
+                radiusScale,
+                alpha,
+                225, 205, 255
+        );
+    }
+
+    private static void drawPathTextured(
+            PoseStack poseStack,
+            VertexConsumer vertices,
+            RiftPath path,
+            int sides,
+            float pulse,
+            float age,
+            float radiusScale,
+            int alpha,
+            int red,
+            int green,
+            int blue
+    ) {
         PoseStack.Pose pose = poseStack.last();
 
         for (int ring = 0; ring < path.centers.length - 1; ring++) {
@@ -860,10 +939,25 @@ public final class RiftAfterWaterRenderer {
                 float v0 = ring / (float) (path.centers.length - 1);
                 float v1 = (ring + 1) / (float) (path.centers.length - 1);
 
-                emitTexturedVertex(vertices, pose, a, normalA, u0, v0, alpha);
-                emitTexturedVertex(vertices, pose, b, normalB, u1, v0, alpha);
-                emitTexturedVertex(vertices, pose, c, normalC, u1, v1, alpha);
-                emitTexturedVertex(vertices, pose, d, normalD, u0, v1, alpha);
+                emitTexturedVertex(
+                        vertices, pose, a, normalA,
+                        u0, v0, red, green, blue, alpha
+                );
+
+                emitTexturedVertex(
+                        vertices, pose, b, normalB,
+                        u1, v0, red, green, blue, alpha
+                );
+
+                emitTexturedVertex(
+                        vertices, pose, c, normalC,
+                        u1, v1, red, green, blue, alpha
+                );
+
+                emitTexturedVertex(
+                        vertices, pose, d, normalD,
+                        u0, v1, red, green, blue, alpha
+                );
             }
         }
     }
@@ -896,6 +990,9 @@ public final class RiftAfterWaterRenderer {
             Vec3 normal,
             float u,
             float v,
+            int red,
+            int green,
+            int blue,
             int alpha
     ) {
         vertices.addVertex(
@@ -904,7 +1001,7 @@ public final class RiftAfterWaterRenderer {
                         (float) position.y,
                         (float) position.z
                 )
-                .setColor(225, 205, 255, alpha)
+                .setColor(red, green, blue, alpha)
                 .setUv(u, v)
                 .setOverlay(OverlayTexture.NO_OVERLAY)
                 .setLight(LightTexture.FULL_BRIGHT)
@@ -915,4 +1012,126 @@ public final class RiftAfterWaterRenderer {
                         (float) normal.z
                 );
     }
+
+    private static final class RiftFogRenderTypes extends RenderStateShard {
+
+        private static final RenderType ADDITIVE_FOG = RenderType.create(
+                TutorialMod.MOD_ID + ":rift_additive_fog",
+                DefaultVertexFormat.NEW_ENTITY,
+                VertexFormat.Mode.QUADS,
+                512,
+                false,
+                true,
+                RenderType.CompositeState.builder()
+                        .setShaderState(RENDERTYPE_ENTITY_TRANSLUCENT_SHADER)
+                        .setTextureState(
+                                new RenderStateShard.TextureStateShard(
+                                        END_PORTAL_TEXTURE,
+                                        true,
+                                        false
+                                )
+                        )
+                        .setTransparencyState(ADDITIVE_TRANSPARENCY)
+                        .setCullState(NO_CULL)
+                        .setWriteMaskState(COLOR_WRITE)
+                        .setLightmapState(LIGHTMAP)
+                        .setOverlayState(OVERLAY)
+                        .createCompositeState(false)
+        );
+
+        private RiftFogRenderTypes() {
+            super("rift_fog", () -> {}, () -> {});
+        }
+
+    }
+
+    private static void drawFogLayers(
+            PoseStack poseStack,
+            VertexConsumer vertices,
+            RiftGeometry geometry,
+            float pulse,
+            float age
+    ) {
+        float breathing =
+                1.0F + Mth.sin(age * 0.035F + geometry.phase) * 0.035F;
+
+        // Самый широкий и прозрачный слой.
+        drawPathTextured(
+                poseStack,
+                vertices,
+                geometry.mainPath,
+                SIDES,
+                pulse,
+                age,
+                2.25F * breathing,
+                14,
+                135, 130, 180
+        );
+
+        // Средний слой.
+        drawPathTextured(
+                poseStack,
+                vertices,
+                geometry.mainPath,
+                SIDES,
+                pulse,
+                age,
+                1.75F * breathing,
+                24,
+                160, 145, 210
+        );
+
+        // Ближний слой, наиболее заметный.
+        drawPathTextured(
+                poseStack,
+                vertices,
+                geometry.mainPath,
+                SIDES,
+                pulse,
+                age,
+                1.25F * breathing,
+                40,
+                195, 180, 235
+        );
+
+        // Дымка вокруг дополнительных ответвлений.
+        for (RiftPath branch : geometry.branches) {
+            drawPathTextured(
+                    poseStack,
+                    vertices,
+                    branch,
+                    BRANCH_SIDES,
+                    pulse,
+                    age,
+                    2.0F * breathing,
+                    9,
+                    135, 130, 180
+            );
+
+            drawPathTextured(
+                    poseStack,
+                    vertices,
+                    branch,
+                    BRANCH_SIDES,
+                    pulse,
+                    age,
+                    1.55F * breathing,
+                    17,
+                    160, 145, 210
+            );
+
+            drawPathTextured(
+                    poseStack,
+                    vertices,
+                    branch,
+                    BRANCH_SIDES,
+                    pulse,
+                    age,
+                    1.15F * breathing,
+                    29,
+                    195, 180, 235
+            );
+        }
+    }
+
 }
