@@ -57,6 +57,9 @@ public class RiftEntity extends Entity {
     }
 
     public void ensurePortalMarkers(ServerLevel level) {
+        if (!ModList.get().isLoaded("aeroportals")) {
+            return;
+        }
         BlockPos base = this.blockPosition();
 
         for (int dx = -1; dx <= 1; dx++) {

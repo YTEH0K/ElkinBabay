@@ -8,18 +8,14 @@ import net.kaupenjoe.tutorialmod.TutorialMod;
 import net.kaupenjoe.tutorialmod.entity.custom.RiftEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.texture.TextureAtlas;
-import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.NeoForgeRenderTypes;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 import java.util.HashMap;
@@ -35,12 +31,6 @@ import java.util.UUID;
         value = Dist.CLIENT
 )
 public final class RiftAfterWaterRenderer {
-
-    private static final ResourceLocation PORTAL_TEXTURE =
-            ResourceLocation.fromNamespaceAndPath(
-                    "minecraft",
-                    "block/nether_portal"
-            );
 
     private static final int SEGMENTS = 22;
     private static final int SIDES = 12;
@@ -76,19 +66,7 @@ public final class RiftAfterWaterRenderer {
         float partialTick =
                 event.getPartialTick().getGameTimeDeltaPartialTick(false);
 
-        TextureAtlasSprite sprite = minecraft.getTextureAtlas(
-                TextureAtlas.LOCATION_BLOCKS
-        ).apply(PORTAL_TEXTURE);
-
-        float u0 = sprite.getU(0.01F);
-        float u1 = sprite.getU(0.99F);
-        float v0 = sprite.getV(0.01F);
-        float v1 = sprite.getV(0.99F);
-
-        RenderType renderType =
-                NeoForgeRenderTypes.getTranslucentParticlesTarget(
-                        TextureAtlas.LOCATION_BLOCKS
-                );
+        RenderType renderType = RenderType.endPortal();
 
         MultiBufferSource.BufferSource buffers =
                 minecraft.renderBuffers().bufferSource();
@@ -157,42 +135,7 @@ public final class RiftAfterWaterRenderer {
                     height,
                     pulse,
                     age,
-                    u0,
-                    u1,
-                    v0,
-                    v1,
-                    1.28F,
-                    new int[]{170, 60, 255, 65}
-            );
-
-            drawShell(
-                    poseStack,
-                    vertices,
-                    geometry,
-                    height,
-                    pulse,
-                    age,
-                    u0,
-                    u1,
-                    v0,
-                    v1,
-                    1.0F,
-                    new int[]{125, 35, 220, 165}
-            );
-
-            drawShell(
-                    poseStack,
-                    vertices,
-                    geometry,
-                    height,
-                    pulse,
-                    age,
-                    u0,
-                    u1,
-                    v0,
-                    v1,
-                    0.68F,
-                    new int[]{90, 190, 255, 135}
+                    1.0F
             );
 
             poseStack.popPose();
@@ -236,12 +179,10 @@ public final class RiftAfterWaterRenderer {
             }
 
             float waveX =
-                    Mth.sin(t * Mth.PI * 2.0F + phase)
-                            * 0.10F;
+                    Mth.sin(t * Mth.PI * 2.0F + phase) * 0.10F;
 
             float waveZ =
-                    Mth.cos(t * Mth.PI * 2.0F + phase)
-                            * 0.10F;
+                    Mth.cos(t * Mth.PI * 2.0F + phase) * 0.10F;
 
             geometry.centerX[i] =
                     (driftX + waveX) * envelope;
@@ -274,12 +215,7 @@ public final class RiftAfterWaterRenderer {
             float height,
             float pulse,
             float age,
-            float u0,
-            float u1,
-            float v0,
-            float v1,
-            float radiusScale,
-            int[] color
+            float radiusScale
     ) {
         PoseStack.Pose pose = poseStack.last();
 
@@ -288,51 +224,29 @@ public final class RiftAfterWaterRenderer {
 
                 Point a = getPoint(
                         geometry, ring, side,
-                        height, pulse, age,
-                        radiusScale, u0, u1, v0, v1
+                        height, pulse, age, radiusScale
                 );
 
                 Point b = getPoint(
                         geometry, ring, side + 1,
-                        height, pulse, age,
-                        radiusScale, u0, u1, v0, v1
+                        height, pulse, age, radiusScale
                 );
 
                 Point c = getPoint(
                         geometry, ring + 1, side + 1,
-                        height, pulse, age,
-                        radiusScale, u0, u1, v0, v1
+                        height, pulse, age, radiusScale
                 );
 
                 Point d = getPoint(
                         geometry, ring + 1, side,
-                        height, pulse, age,
-                        radiusScale, u0, u1, v0, v1
+                        height, pulse, age, radiusScale
                 );
 
-                emitTriangle(
-                        vertices, pose,
-                        a, b, c,
-                        color, false
-                );
+                // Передняя сторона
+                emitQuad(vertices, pose, a, b, c, d);
 
-                emitTriangle(
-                        vertices, pose,
-                        a, c, d,
-                        color, false
-                );
-
-                emitTriangle(
-                        vertices, pose,
-                        c, b, a,
-                        color, true
-                );
-
-                emitTriangle(
-                        vertices, pose,
-                        d, c, a,
-                        color, true
-                );
+                // Обратная сторона
+                emitQuad(vertices, pose, d, c, b, a);
             }
         }
     }
@@ -344,11 +258,7 @@ public final class RiftAfterWaterRenderer {
             float height,
             float pulse,
             float age,
-            float radiusScale,
-            float u0,
-            float u1,
-            float v0,
-            float v1
+            float radiusScale
     ) {
         float t = ring / (float) (SEGMENTS - 1);
         float sideFraction = side / (float) SIDES;
@@ -378,64 +288,22 @@ public final class RiftAfterWaterRenderer {
                 geometry.centerZ[ring] * pulse
                         + sin * radius;
 
-        float u = Mth.lerp(sideFraction, u0, u1);
-        float v = Mth.lerp(t, v0, v1);
-
-        return new Point(
-                x, y, z,
-                u, v,
-                cos, 0.0F, sin
-        );
+        return new Point(x, y, z);
     }
 
-    private static void emitTriangle(
+    private static void emitQuad(
             VertexConsumer vertices,
             PoseStack.Pose pose,
             Point a,
             Point b,
             Point c,
-            int[] color,
-            boolean reverse
+            Point d
     ) {
-        if (reverse) {
-            vertex(vertices, pose, c, color, -1.0F);
-            vertex(vertices, pose, b, color, -1.0F);
-            vertex(vertices, pose, a, color, -1.0F);
-        } else {
-            vertex(vertices, pose, a, color, 1.0F);
-            vertex(vertices, pose, b, color, 1.0F);
-            vertex(vertices, pose, c, color, 1.0F);
-        }
-    }
-
-    private static void vertex(
-            VertexConsumer vertices,
-            PoseStack.Pose pose,
-            Point point,
-            int[] color,
-            float normalDirection
-    ) {
-        vertices.addVertex(
-                        pose,
-                        point.x,
-                        point.y,
-                        point.z
-                )
-                .setColor(
-                        color[0],
-                        color[1],
-                        color[2],
-                        color[3]
-                )
-                .setUv(point.u, point.v)
-                .setOverlay(net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY)
-                .setLight(LightTexture.FULL_BRIGHT)
-                .setNormal(
-                        pose,
-                        point.normalX * normalDirection,
-                        point.normalY * normalDirection,
-                        point.normalZ * normalDirection
-                );
+        // End Portal RenderType использует только координаты вершин.
+        vertices.addVertex(pose, a.x, a.y, a.z);
+        vertices.addVertex(pose, b.x, b.y, b.z);
+        vertices.addVertex(pose, c.x, c.y, c.z);
+        vertices.addVertex(pose, d.x, d.y, d.z);
     }
 
     private static final class RiftGeometry {
@@ -452,33 +320,10 @@ public final class RiftAfterWaterRenderer {
         private final float y;
         private final float z;
 
-        private final float u;
-        private final float v;
-
-        private final float normalX;
-        private final float normalY;
-        private final float normalZ;
-
-        private Point(
-                float x,
-                float y,
-                float z,
-                float u,
-                float v,
-                float normalX,
-                float normalY,
-                float normalZ
-        ) {
+        private Point(float x, float y, float z) {
             this.x = x;
             this.y = y;
             this.z = z;
-
-            this.u = u;
-            this.v = v;
-
-            this.normalX = normalX;
-            this.normalY = normalY;
-            this.normalZ = normalZ;
         }
     }
 }
