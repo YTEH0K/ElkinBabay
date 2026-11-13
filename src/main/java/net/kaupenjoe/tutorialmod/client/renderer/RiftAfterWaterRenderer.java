@@ -55,6 +55,7 @@ public final class RiftAfterWaterRenderer {
     private RiftAfterWaterRenderer() {
     }
 
+
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES) {
@@ -86,14 +87,10 @@ public final class RiftAfterWaterRenderer {
         MultiBufferSource.BufferSource buffers =
                 minecraft.renderBuffers().bufferSource();
 
-        VertexConsumer portalVertices =
-                buffers.getBuffer(portalRenderType);
-
-        VertexConsumer surfaceVertices =
-                buffers.getBuffer(surfaceRenderType);
-
         Set<UUID> activeRifts = new HashSet<>();
+        List<RiftEntity> visibleRifts = new ArrayList<>();
 
+        // Собираем все видимые разломы.
         for (var entity : minecraft.level.entitiesForRendering()) {
             if (!(entity instanceof RiftEntity rift) || !rift.isAlive()) {
                 continue;
@@ -110,7 +107,7 @@ public final class RiftAfterWaterRenderer {
                 continue;
             }
 
-            RiftGeometry geometry = GEOMETRY_CACHE.computeIfAbsent(
+            GEOMETRY_CACHE.computeIfAbsent(
                     uuid,
                     id -> generateGeometry(
                             id,
@@ -119,9 +116,24 @@ public final class RiftAfterWaterRenderer {
                     )
             );
 
+            visibleRifts.add(rift);
+        }
+
+        // PASS 1: внутренняя оболочка портала.
+        VertexConsumer portalVertices =
+                buffers.getBuffer(portalRenderType);
+
+        for (RiftEntity rift : visibleRifts) {
+            RiftGeometry geometry = GEOMETRY_CACHE.get(rift.getUUID());
+
             double x = Mth.lerp(partialTick, rift.xo, rift.getX());
             double y = Mth.lerp(partialTick, rift.yo, rift.getY());
             double z = Mth.lerp(partialTick, rift.zo, rift.getZ());
+
+            float age = rift.tickCount + partialTick;
+
+            float pulse =
+                    1.0F + Mth.sin(age * 0.08F) * 0.035F;
 
             poseStack.pushPose();
 
@@ -137,19 +149,12 @@ public final class RiftAfterWaterRenderer {
                     0.0D
             );
 
-            float age = rift.tickCount + partialTick;
-
-            float pulse =
-                    1.0F + Mth.sin(age * 0.08F) * 0.035F;
-
-            float rotation =
-                    geometry.rotationOffset + age * 0.10F;
-
             poseStack.mulPose(
-                    Axis.YP.rotationDegrees(rotation)
+                    Axis.YP.rotationDegrees(
+                            geometry.rotationOffset + age * 0.10F
+                    )
             );
 
-            // Внутренняя оболочка с эффектом портала Края.
             drawPath(
                     poseStack,
                     portalVertices,
@@ -158,18 +163,6 @@ public final class RiftAfterWaterRenderer {
                     pulse,
                     age,
                     0.84F
-            );
-
-            // Внешняя оболочка с текстурой и освещением.
-            drawPathTextured(
-                    poseStack,
-                    surfaceVertices,
-                    geometry.mainPath,
-                    SIDES,
-                    pulse,
-                    age,
-                    1.0F,
-                    190
             );
 
             for (RiftPath branch : geometry.branches) {
@@ -182,7 +175,62 @@ public final class RiftAfterWaterRenderer {
                         age,
                         0.84F
                 );
+            }
 
+            poseStack.popPose();
+        }
+
+        // Важно: завершаем первый буфер до получения второго.
+        buffers.endBatch(portalRenderType);
+
+        // PASS 2: внешняя текстурированная оболочка.
+        VertexConsumer surfaceVertices =
+                buffers.getBuffer(surfaceRenderType);
+
+        for (RiftEntity rift : visibleRifts) {
+            RiftGeometry geometry = GEOMETRY_CACHE.get(rift.getUUID());
+
+            double x = Mth.lerp(partialTick, rift.xo, rift.getX());
+            double y = Mth.lerp(partialTick, rift.yo, rift.getY());
+            double z = Mth.lerp(partialTick, rift.zo, rift.getZ());
+
+            float age = rift.tickCount + partialTick;
+
+            float pulse =
+                    1.0F + Mth.sin(age * 0.08F) * 0.035F;
+
+            poseStack.pushPose();
+
+            poseStack.translate(
+                    x - cameraPos.x,
+                    y - cameraPos.y,
+                    z - cameraPos.z
+            );
+
+            poseStack.translate(
+                    0.0D,
+                    rift.getBbHeight() / 2.0D,
+                    0.0D
+            );
+
+            poseStack.mulPose(
+                    Axis.YP.rotationDegrees(
+                            geometry.rotationOffset + age * 0.10F
+                    )
+            );
+
+            drawPathTextured(
+                    poseStack,
+                    surfaceVertices,
+                    geometry.mainPath,
+                    SIDES,
+                    pulse,
+                    age,
+                    1.0F,
+                    190
+            );
+
+            for (RiftPath branch : geometry.branches) {
                 drawPathTextured(
                         poseStack,
                         surfaceVertices,
@@ -198,11 +246,11 @@ public final class RiftAfterWaterRenderer {
             poseStack.popPose();
         }
 
-        GEOMETRY_CACHE.keySet().retainAll(activeRifts);
-
-        buffers.endBatch(portalRenderType);
         buffers.endBatch(surfaceRenderType);
+
+        GEOMETRY_CACHE.keySet().retainAll(activeRifts);
     }
+
 
     private static RiftGeometry generateGeometry(
             UUID uuid,
