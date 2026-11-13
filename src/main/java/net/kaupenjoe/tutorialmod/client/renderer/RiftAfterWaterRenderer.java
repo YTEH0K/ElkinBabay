@@ -10,12 +10,15 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.client.renderer.OverlayTexture;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,10 +36,16 @@ import java.util.UUID;
 )
 public final class RiftAfterWaterRenderer {
 
+
+    private static final ResourceLocation END_PORTAL_TEXTURE =
+            ResourceLocation.fromNamespaceAndPath(
+                    "minecraft",
+                    "textures/entity/end_portal.png"
+            );
     private static final int SEGMENTS = 30;
-    private static final int SIDES = 12;
+    private static final int SIDES = 16;
     private static final int BRANCH_SEGMENTS = 14;
-    private static final int BRANCH_SIDES = 8;
+    private static final int BRANCH_SIDES = 10;
 
     private static final Map<UUID, RiftGeometry> GEOMETRY_CACHE =
             new HashMap<>();
@@ -69,12 +78,19 @@ public final class RiftAfterWaterRenderer {
         float partialTick =
                 event.getPartialTick().getGameTimeDeltaPartialTick(false);
 
-        RenderType renderType = RenderType.endPortal();
+        RenderType portalRenderType = RenderType.endPortal();
+
+        RenderType surfaceRenderType =
+                RenderType.entityTranslucent(END_PORTAL_TEXTURE);
 
         MultiBufferSource.BufferSource buffers =
                 minecraft.renderBuffers().bufferSource();
 
-        VertexConsumer vertices = buffers.getBuffer(renderType);
+        VertexConsumer portalVertices =
+                buffers.getBuffer(portalRenderType);
+
+        VertexConsumer surfaceVertices =
+                buffers.getBuffer(surfaceRenderType);
 
         Set<UUID> activeRifts = new HashSet<>();
 
@@ -133,25 +149,49 @@ public final class RiftAfterWaterRenderer {
                     Axis.YP.rotationDegrees(rotation)
             );
 
-            // Основное тело разлома.
+            // Внутренняя оболочка с эффектом портала Края.
             drawPath(
                     poseStack,
-                    vertices,
+                    portalVertices,
                     geometry.mainPath,
                     SIDES,
                     pulse,
-                    age
+                    age,
+                    0.84F
             );
 
-            // Дополнительные случайные ответвления.
+            // Внешняя оболочка с текстурой и освещением.
+            drawPathTextured(
+                    poseStack,
+                    surfaceVertices,
+                    geometry.mainPath,
+                    SIDES,
+                    pulse,
+                    age,
+                    1.0F,
+                    190
+            );
+
             for (RiftPath branch : geometry.branches) {
                 drawPath(
                         poseStack,
-                        vertices,
+                        portalVertices,
                         branch,
                         BRANCH_SIDES,
                         pulse,
-                        age
+                        age,
+                        0.84F
+                );
+
+                drawPathTextured(
+                        poseStack,
+                        surfaceVertices,
+                        branch,
+                        BRANCH_SIDES,
+                        pulse,
+                        age,
+                        1.0F,
+                        170
                 );
             }
 
@@ -160,7 +200,8 @@ public final class RiftAfterWaterRenderer {
 
         GEOMETRY_CACHE.keySet().retainAll(activeRifts);
 
-        buffers.endBatch(renderType);
+        buffers.endBatch(portalRenderType);
+        buffers.endBatch(surfaceRenderType);
     }
 
     private static RiftGeometry generateGeometry(
@@ -177,52 +218,46 @@ public final class RiftAfterWaterRenderer {
 
         Random random = new Random(seed);
 
-        float maxX = entityWidth * 0.31F;
-        float maxY = entityHeight * 0.34F;
-        float maxZ = entityWidth * 0.31F;
-
         RiftGeometry geometry = new RiftGeometry();
 
         geometry.phase = random.nextFloat() * Mth.TWO_PI;
         geometry.rotationOffset = random.nextFloat() * 360.0F;
 
-        float maxRadius = Math.min(0.44F, entityWidth * 0.145F);
-
         Vec3[] mainControls = generateMainControls(
                 random,
-                maxX,
-                maxY,
-                maxZ
+                entityHeight
+        );
+
+        float maxRadius = Math.min(
+                0.82F,
+                entityWidth * 0.27F
         );
 
         geometry.mainPath = createPath(
                 random,
                 mainControls,
                 SEGMENTS,
-                0.13F,
+                maxRadius * 0.58F,
                 maxRadius,
                 false
         );
 
-        // Ответвления появляются не у каждого разлома.
-        if (random.nextFloat() < 0.65F) {
+        // Иногда создаём одну или две дополнительные ветви.
+        if (random.nextFloat() < 0.70F) {
             int branchCount = 1 + random.nextInt(2);
 
             for (int i = 0; i < branchCount; i++) {
                 Vec3[] branchControls = generateBranchControls(
                         random,
-                        geometry.mainPath,
-                        maxX,
-                        maxY,
-                        maxZ
+                        geometry.mainPath
                 );
 
                 RiftPath branch = createPath(
                         random,
                         branchControls,
                         BRANCH_SEGMENTS,
-                        0.035F,
-                        0.19F,
+                        0.15F,
+                        0.36F,
                         true
                 );
 
@@ -235,46 +270,55 @@ public final class RiftAfterWaterRenderer {
 
     private static Vec3[] generateMainControls(
             Random random,
-            float maxX,
-            float maxY,
-            float maxZ
+            float entityHeight
     ) {
         int controlCount = 6;
 
         Vec3[] controls = new Vec3[controlCount];
 
-        Vec3 start = randomPoint(random, maxX, maxY, maxZ);
-        Vec3 end = randomPoint(random, maxX, maxY, maxZ);
+        // Случайное направление основной оси.
+        Vec3 axis = randomDirection(random);
 
-        for (int attempt = 0;
-             attempt < 5 && start.distanceToSqr(end) < 0.8;
-             attempt++) {
+        Vec3 reference = Math.abs(axis.y) < 0.85D
+                ? new Vec3(0, 1, 0)
+                : new Vec3(1, 0, 0);
 
-            end = randomPoint(random, maxX, maxY, maxZ);
-        }
+        // Два направления, перпендикулярных основной оси.
+        Vec3 side = axis.cross(reference).normalize();
+        Vec3 up = axis.cross(side).normalize();
 
-        controls[0] = start;
-        controls[controlCount - 1] = end;
+        float halfLength = Math.min(
+                entityHeight * 0.38F,
+                1.25F + 0.25F * (float) Math.abs(axis.y)
+        );
 
-        for (int i = 1; i < controlCount - 1; i++) {
-            double t = i / (double) (controlCount - 1);
+        float phase = random.nextFloat() * Mth.TWO_PI;
 
-            Vec3 base = start.lerp(end, t);
+        for (int i = 0; i < controlCount; i++) {
+            float t = i / (float) (controlCount - 1);
 
-            double spread = Math.sin(t * Math.PI) * 0.65;
+            // Координата вдоль главной оси всегда возрастает.
+            double longitudinal =
+                    -halfLength + 2.0D * halfLength * t;
 
-            Vec3 offset = new Vec3(
-                    random.nextGaussian() * spread,
-                    random.nextGaussian() * spread,
-                    random.nextGaussian() * spread
-            );
+            float envelope = Mth.sin(t * Mth.PI);
 
-            controls[i] = clampPoint(
-                    base.add(offset),
-                    maxX,
-                    maxY,
-                    maxZ
-            );
+            // Случайные пространственные отклонения.
+            float sideOffset =
+                    (float) random.nextGaussian()
+                            * 0.36F * envelope
+                            + Mth.sin(t * Mth.TWO_PI + phase)
+                            * 0.22F * envelope;
+
+            float upOffset =
+                    (float) random.nextGaussian()
+                            * 0.36F * envelope
+                            + Mth.cos(t * Mth.TWO_PI + phase)
+                            * 0.22F * envelope;
+
+            controls[i] = axis.scale(longitudinal)
+                    .add(side.scale(sideOffset))
+                    .add(up.scale(upOffset));
         }
 
         return controls;
@@ -282,21 +326,22 @@ public final class RiftAfterWaterRenderer {
 
     private static Vec3[] generateBranchControls(
             Random random,
-            RiftPath mainPath,
-            float maxX,
-            float maxY,
-            float maxZ
+            RiftPath mainPath
     ) {
-        int attachIndex = 5 + random.nextInt(
-                mainPath.centers.length - 10
+        int attachIndex = 6 + random.nextInt(
+                mainPath.centers.length - 12
         );
 
         Vec3 start = mainPath.centers[attachIndex];
 
-        Vec3 tangent = getTangent(mainPath.centers, attachIndex);
+        Vec3 tangent = getTangent(
+                mainPath.centers,
+                attachIndex
+        ).normalize();
 
         Vec3 direction = randomDirection(random);
 
+        // Направление ветви должно отличаться от направления основной линии.
         direction = direction.subtract(
                 tangent.scale(direction.dot(tangent))
         );
@@ -315,32 +360,25 @@ public final class RiftAfterWaterRenderer {
             direction = direction.scale(-1.0D);
         }
 
-        double length = 0.55D + random.nextDouble() * 0.35D;
+        double length = 0.65D + random.nextDouble() * 0.65D;
 
         Vec3 middle = start
-                .add(direction.scale(length * 0.55D))
+                .add(direction.scale(length * 0.58D))
                 .add(tangent.scale(
-                        (random.nextDouble() - 0.5D) * 0.4D
+                        (random.nextDouble() - 0.5D) * 0.20D
                 ));
 
         Vec3 end = start
                 .add(direction.scale(length))
                 .add(tangent.scale(
-                        (random.nextDouble() - 0.5D) * 0.6D
-                ))
-                .add(new Vec3(
-                        random.nextGaussian() * 0.15D,
-                        random.nextGaussian() * 0.15D,
-                        random.nextGaussian() * 0.15D
+                        (random.nextDouble() - 0.5D) * 0.28D
                 ));
-
-        Vec3 firstMiddle = start.lerp(middle, 0.45D);
 
         return new Vec3[]{
                 start,
-                clampPoint(firstMiddle, maxX, maxY, maxZ),
-                clampPoint(middle, maxX, maxY, maxZ),
-                clampPoint(end, maxX, maxY, maxZ)
+                start.lerp(middle, 0.45D),
+                middle,
+                end
         };
     }
 
@@ -361,7 +399,7 @@ public final class RiftAfterWaterRenderer {
                     + random.nextFloat() * (maxRadius - minRadius);
 
             if (i == 0 || i == radiusControls.length - 1) {
-                radius *= 0.45F + random.nextFloat() * 0.2F;
+                radius *= 0.70F + random.nextFloat() * 0.20F;
             }
 
             radiusControls[i] = radius;
@@ -377,9 +415,9 @@ public final class RiftAfterWaterRenderer {
             float taper;
 
             if (branch) {
-                taper = 1.0F - t * 0.65F;
+                taper = 1.0F - t * 0.72F;
             } else {
-                taper = 0.35F + 0.65F * Mth.sin(t * Mth.PI);
+                taper = 0.78F + 0.22F * Mth.sin(t * Mth.PI);
             }
 
             path.radii[i] = Math.max(
@@ -617,30 +655,32 @@ public final class RiftAfterWaterRenderer {
             RiftPath path,
             int sides,
             float pulse,
-            float age
+            float age,
+            float radiusScale
     ) {
         PoseStack.Pose pose = poseStack.last();
 
         for (int ring = 0; ring < path.centers.length - 1; ring++) {
             for (int side = 0; side < sides; side++) {
+
                 Vec3 a = getPoint(
-                        path, ring, side,
-                        sides, pulse, age
+                        path, ring, side, sides,
+                        pulse, age, radiusScale
                 );
 
                 Vec3 b = getPoint(
-                        path, ring, side + 1,
-                        sides, pulse, age
+                        path, ring, side + 1, sides,
+                        pulse, age, radiusScale
                 );
 
                 Vec3 c = getPoint(
-                        path, ring + 1, side + 1,
-                        sides, pulse, age
+                        path, ring + 1, side + 1, sides,
+                        pulse, age, radiusScale
                 );
 
                 Vec3 d = getPoint(
-                        path, ring + 1, side,
-                        sides, pulse, age
+                        path, ring + 1, side, sides,
+                        pulse, age, radiusScale
                 );
 
                 emitQuad(vertices, pose, a, b, c, d);
@@ -655,21 +695,33 @@ public final class RiftAfterWaterRenderer {
             int side,
             int sides,
             float pulse,
-            float age
+            float age,
+            float radiusScale
     ) {
         float angle =
                 side / (float) sides * Mth.TWO_PI
-                        + path.twistOffset
                         + ring * 0.08F
-                        + age * 0.012F;
+                        + age * 0.012F
+                        + path.twistOffset;
 
         float cos = Mth.cos(angle);
         float sin = Mth.sin(angle);
 
-        float radius = path.radii[ring] * pulse;
+        // Неровности по окружности трубки.
+        float irregularity =
+                1.0F
+                        + Mth.sin(angle * 3.0F + ring * 0.47F) * 0.11F
+                        + Mth.cos(angle * 5.0F - ring * 0.29F) * 0.045F;
 
-        Vec3 radialOffset = path.normals[ring].scale(cos * radius)
-                .add(path.binormals[ring].scale(sin * radius));
+        float radius =
+                path.radii[ring]
+                        * radiusScale
+                        * pulse
+                        * irregularity;
+
+        Vec3 radialOffset =
+                path.normals[ring].scale(cos * radius)
+                        .add(path.binormals[ring].scale(sin * radius));
 
         return path.centers[ring].add(radialOffset);
     }
@@ -712,5 +764,107 @@ public final class RiftAfterWaterRenderer {
             normals = new Vec3[segments];
             binormals = new Vec3[segments];
         }
+    }
+
+    private static void drawPathTextured(
+            PoseStack poseStack,
+            VertexConsumer vertices,
+            RiftPath path,
+            int sides,
+            float pulse,
+            float age,
+            float radiusScale,
+            int alpha
+    ) {
+        PoseStack.Pose pose = poseStack.last();
+
+        for (int ring = 0; ring < path.centers.length - 1; ring++) {
+            for (int side = 0; side < sides; side++) {
+
+                Vec3 a = getPoint(
+                        path, ring, side, sides,
+                        pulse, age, radiusScale
+                );
+
+                Vec3 b = getPoint(
+                        path, ring, side + 1, sides,
+                        pulse, age, radiusScale
+                );
+
+                Vec3 c = getPoint(
+                        path, ring + 1, side + 1, sides,
+                        pulse, age, radiusScale
+                );
+
+                Vec3 d = getPoint(
+                        path, ring + 1, side, sides,
+                        pulse, age, radiusScale
+                );
+
+                Vec3 normalA = getRadialNormal(path, ring, side, sides, age);
+                Vec3 normalB = getRadialNormal(path, ring, side + 1, sides, age);
+                Vec3 normalC = getRadialNormal(path, ring + 1, side + 1, sides, age);
+                Vec3 normalD = getRadialNormal(path, ring + 1, side, sides, age);
+
+                float u0 = side / (float) sides;
+                float u1 = (side + 1) / (float) sides;
+
+                float v0 = ring / (float) (path.centers.length - 1);
+                float v1 = (ring + 1) / (float) (path.centers.length - 1);
+
+                emitTexturedVertex(vertices, pose, a, normalA, u0, v0, alpha);
+                emitTexturedVertex(vertices, pose, b, normalB, u1, v0, alpha);
+                emitTexturedVertex(vertices, pose, c, normalC, u1, v1, alpha);
+                emitTexturedVertex(vertices, pose, d, normalD, u0, v1, alpha);
+            }
+        }
+    }
+
+    private static Vec3 getRadialNormal(
+            RiftPath path,
+            int ring,
+            int side,
+            int sides,
+            float age
+    ) {
+        float angle =
+                side / (float) sides * Mth.TWO_PI
+                        + ring * 0.08F
+                        + age * 0.012F
+                        + path.twistOffset;
+
+        float cos = Mth.cos(angle);
+        float sin = Mth.sin(angle);
+
+        return path.normals[ring].scale(cos)
+                .add(path.binormals[ring].scale(sin))
+                .normalize();
+    }
+
+    private static void emitTexturedVertex(
+            VertexConsumer vertices,
+            PoseStack.Pose pose,
+            Vec3 position,
+            Vec3 normal,
+            float u,
+            float v,
+            int alpha
+    ) {
+        vertices.addVertex(
+                        pose,
+                        (float) position.x,
+                        (float) position.y,
+                        (float) position.z
+                )
+                .setColor(225, 205, 255, alpha)
+                .setUv(u, v)
+                .setOverlay(OverlayTexture.NO_OVERLAY)
+                .setLight(LightTexture.FULL_BRIGHT)
+                .setNormal(
+                        pose,
+                        (float) normal.x,
+                        (float) normal.y,
+                        (float) normal.z
+                );
     }
 }
