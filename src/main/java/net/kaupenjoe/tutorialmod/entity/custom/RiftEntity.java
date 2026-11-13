@@ -159,6 +159,7 @@ public class RiftEntity extends Entity {
         super.tick();
 
         if (this.level().isClientSide) {
+            spawnAmbientParticles();
             return;
         }
 
@@ -167,28 +168,7 @@ public class RiftEntity extends Entity {
         }
 
 
-        // Visual effects: portal particles.
-        if (this.tickCount % 4 == 0) {
-            double angle = this.random.nextDouble() * Math.PI * 2.0;
-            double radius = this.getBbWidth() * 0.48;
 
-            double particleX = this.getX() + Math.cos(angle) * radius;
-            double particleY = this.getY()
-                    + this.random.nextDouble() * this.getBbHeight();
-            double particleZ = this.getZ() + Math.sin(angle) * radius;
-
-            sourceLevel.sendParticles(
-                    ParticleTypes.PORTAL,
-                    particleX,
-                    particleY,
-                    particleZ,
-                    3,
-                    0.12,
-                    0.18,
-                    0.12,
-                    0.02
-            );
-        }
 
         boolean entityEntered = false;
 
@@ -258,6 +238,81 @@ public class RiftEntity extends Entity {
             }
         }
     }
+
+
+    private void spawnAmbientParticles() {
+        // Создаём частицы раз в два игровых тика.
+        if (this.tickCount % 2 != 0) {
+            return;
+        }
+
+        double centerY = this.getY() + this.getBbHeight() * 0.5D;
+
+        // Радиус окружающего энергетического поля.
+        double baseRadius =
+                Math.max(this.getBbWidth(), this.getBbHeight()) * 0.72D;
+
+        // Две частицы за один вызов, на противоположных сторонах.
+        for (int i = 0; i < 2; i++) {
+            double angle =
+                    this.tickCount * 0.075D
+                            + i * Math.PI
+                            + this.random.nextDouble() * 0.7D;
+
+            // Распределяем частицы по всей высоте и глубине.
+            double latitude =
+                    (this.random.nextDouble() - 0.5D) * Math.PI * 0.8D;
+
+            double horizontal = Math.cos(latitude);
+
+            double radius =
+                    baseRadius + this.random.nextDouble() * 0.35D;
+
+            double x = this.getX()
+                    + Math.cos(angle) * radius * horizontal;
+
+            double y = centerY
+                    + Math.sin(latitude) * radius;
+
+            double z = this.getZ()
+                    + Math.sin(angle) * radius * horizontal;
+
+            // Движение по касательной создаёт эффект вращения.
+            double speed = 0.025D + this.random.nextDouble() * 0.015D;
+
+            double velocityX = -Math.sin(angle) * speed;
+            double velocityZ = Math.cos(angle) * speed;
+
+            double velocityY =
+                    (this.random.nextDouble() - 0.4D) * 0.018D;
+
+            int particleType = this.random.nextInt(10);
+
+            if (particleType == 0) {
+                // Редкие яркие искры.
+                this.level().addParticle(
+                        ParticleTypes.END_ROD,
+                        x, y, z,
+                        velocityX, velocityY, velocityZ
+                );
+            } else if (particleType <= 3) {
+                // Фиолетовые магические частицы.
+                this.level().addParticle(
+                        ParticleTypes.WITCH,
+                        x, y, z,
+                        velocityX, velocityY, velocityZ
+                );
+            } else {
+                // Основная портальная энергия.
+                this.level().addParticle(
+                        ParticleTypes.PORTAL,
+                        x, y, z,
+                        velocityX, velocityY, velocityZ
+                );
+            }
+        }
+    }
+
 
     @Override
     public void remove(Entity.RemovalReason reason) {
