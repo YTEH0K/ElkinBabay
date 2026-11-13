@@ -674,6 +674,7 @@ public final class RiftAfterWaterRenderer {
         return path.centers[ring].add(radialOffset);
     }
 
+
     private static void emitQuad(
             VertexConsumer vertices,
             PoseStack.Pose pose,
@@ -682,11 +683,12 @@ public final class RiftAfterWaterRenderer {
             Vec3 c,
             Vec3 d
     ) {
-        vertices.addVertex(pose, a);
-        vertices.addVertex(pose, b);
-        vertices.addVertex(pose, c);
-        vertices.addVertex(pose, d);
+        vertices.addVertex(pose, (float) a.x, (float) a.y, (float) a.z);
+        vertices.addVertex(pose, (float) b.x, (float) b.y, (float) b.z);
+        vertices.addVertex(pose, (float) c.x, (float) c.y, (float) c.z);
+        vertices.addVertex(pose, (float) d.x, (float) d.y, (float) d.z);
     }
+
 
     private static final class RiftGeometry {
         private RiftPath mainPath;
