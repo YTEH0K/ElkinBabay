@@ -286,16 +286,32 @@ public final class RiftAfterWaterRenderer {
                     )
             );
 
-            drawPathTextured(
-                    poseStack,
-                    surfaceVertices,
-                    geometry.mainPath,
-                    SIDES,
-                    pulse,
-                    age,
-                    1.0F,
-                    190
-            );
+
+            if (aggressive) {
+                drawPathTextured(
+                        poseStack,
+                        surfaceVertices,
+                        geometry.mainPath,
+                        SIDES,
+                        pulse,
+                        age,
+                        1.0F,
+                        190,
+                        255, 75, 55
+                );
+            } else {
+                drawPathTextured(
+                        poseStack,
+                        surfaceVertices,
+                        geometry.mainPath,
+                        SIDES,
+                        pulse,
+                        age,
+                        1.0F,
+                        190
+                );
+            }
+
 
             for (RiftPath branch : geometry.branches) {
                 drawPathTextured(
