@@ -109,7 +109,7 @@ public final class RiftAfterWaterRenderer {
             UUID uuid = entity.getUUID();
             activeRifts.add(uuid);
 
-            if (rift.distanceToSqr(
+            if (entity.distanceToSqr(
                     cameraPos.x,
                     cameraPos.y,
                     cameraPos.z
