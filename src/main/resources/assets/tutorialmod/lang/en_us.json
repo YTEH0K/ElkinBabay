@@ -20,5 +20,8 @@
   "tooltip.tutorialmod.chisel.shift_down": "This Item can chisel Blocks into Bricks",
   "tooltip.tutorialmod.chisel": "Press §eShift§r for more Information",
   "tooltip.tutorialmod.radish.tooltip": "Tastes really great!",
-  "entity.tutorialmod.rift": "Rift"
+  "entity.tutorialmod.rift": "Rift",
+  "item.tutorialmod.rift_seal": "Rift Seal",
+  "tooltip.tutorialmod.rift_seal": "Protects you from an aggressive rift for 8 seconds.",
+  "message.tutorialmod.rift.seal_activated": "The seal breaks the aggressive rift connection to you."
 }

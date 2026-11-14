@@ -22,6 +22,8 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.RenderStateShard;
+import net.kaupenjoe.tutorialmod.entity.custom.AggressiveRiftEntity;
+import net.minecraft.world.entity.Entity;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -91,15 +93,20 @@ public final class RiftAfterWaterRenderer {
                 minecraft.renderBuffers().bufferSource();
 
         Set<UUID> activeRifts = new HashSet<>();
-        List<RiftEntity> visibleRifts = new ArrayList<>();
+        List<Entity> visibleRifts = new ArrayList<>();
 
         // Собираем все видимые разломы.
         for (var entity : minecraft.level.entitiesForRendering()) {
-            if (!(entity instanceof RiftEntity rift) || !rift.isAlive()) {
+            if (!(entity instanceof RiftEntity)
+                    && !(entity instanceof AggressiveRiftEntity)) {
                 continue;
             }
 
-            UUID uuid = rift.getUUID();
+            if (!entity.isAlive()) {
+                continue;
+            }
+
+            UUID uuid = entity.getUUID();
             activeRifts.add(uuid);
 
             if (rift.distanceToSqr(
@@ -114,12 +121,12 @@ public final class RiftAfterWaterRenderer {
                     uuid,
                     id -> generateGeometry(
                             id,
-                            rift.getBbWidth(),
-                            rift.getBbHeight()
+                            entity.getBbWidth(),
+                            entity.getBbHeight()
                     )
             );
 
-            visibleRifts.add(rift);
+            visibleRifts.add(entity);
         }
 
         // PASS 0: внешняя энергетическая дымка.
@@ -127,7 +134,9 @@ public final class RiftAfterWaterRenderer {
 
         VertexConsumer fogVertices = buffers.getBuffer(fogRenderType);
 
-        for (RiftEntity rift : visibleRifts) {
+        for (Entity rift : visibleRifts) {
+            boolean aggressive = rift instanceof AggressiveRiftEntity;
+
             RiftGeometry geometry = GEOMETRY_CACHE.get(rift.getUUID());
 
             double x = Mth.lerp(partialTick, rift.xo, rift.getX());
@@ -164,7 +173,8 @@ public final class RiftAfterWaterRenderer {
                     fogVertices,
                     geometry,
                     pulse,
-                    age
+                    age,
+                    aggressive
             );
 
             poseStack.popPose();
@@ -176,7 +186,9 @@ public final class RiftAfterWaterRenderer {
         VertexConsumer portalVertices =
                 buffers.getBuffer(portalRenderType);
 
-        for (RiftEntity rift : visibleRifts) {
+        for (Entity rift : visibleRifts) {
+            boolean aggressive = rift instanceof AggressiveRiftEntity;
+
             RiftGeometry geometry = GEOMETRY_CACHE.get(rift.getUUID());
 
             double x = Mth.lerp(partialTick, rift.xo, rift.getX());
@@ -240,7 +252,9 @@ public final class RiftAfterWaterRenderer {
         VertexConsumer surfaceVertices =
                 buffers.getBuffer(surfaceRenderType);
 
-        for (RiftEntity rift : visibleRifts) {
+        for (Entity rift : visibleRifts) {
+            boolean aggressive = rift instanceof AggressiveRiftEntity;
+
             RiftGeometry geometry = GEOMETRY_CACHE.get(rift.getUUID());
 
             double x = Mth.lerp(partialTick, rift.xo, rift.getX());
@@ -1045,93 +1059,101 @@ public final class RiftAfterWaterRenderer {
 
     }
 
+
     private static void drawFogLayers(
             PoseStack poseStack,
             VertexConsumer vertices,
             RiftGeometry geometry,
             float pulse,
-            float age
+            float age,
+            boolean aggressive
     ) {
         float breathing =
-                1.0F + Mth.sin(age * 0.035F + geometry.phase) * 0.035F;
+                1.0F + Mth.sin(
+                        age * 0.035F + geometry.phase
+                ) * 0.035F;
 
-        // Самый широкий и прозрачный слой.
+        if (aggressive) {
+            drawPathTextured(
+                    poseStack, vertices, geometry.mainPath, SIDES,
+                    pulse, age, 2.25F * breathing, 14,
+                    105, 8, 12
+            );
+
+            drawPathTextured(
+                    poseStack, vertices, geometry.mainPath, SIDES,
+                    pulse, age, 1.75F * breathing, 24,
+                    175, 18, 22
+            );
+
+            drawPathTextured(
+                    poseStack, vertices, geometry.mainPath, SIDES,
+                    pulse, age, 1.25F * breathing, 40,
+                    255, 65, 42
+            );
+
+            for (RiftPath branch : geometry.branches) {
+                drawPathTextured(
+                        poseStack, vertices, branch, BRANCH_SIDES,
+                        pulse, age, 2.0F * breathing, 9,
+                        105, 8, 12
+                );
+
+                drawPathTextured(
+                        poseStack, vertices, branch, BRANCH_SIDES,
+                        pulse, age, 1.55F * breathing, 17,
+                        175, 18, 22
+                );
+
+                drawPathTextured(
+                        poseStack, vertices, branch, BRANCH_SIDES,
+                        pulse, age, 1.15F * breathing, 29,
+                        255, 65, 42
+                );
+            }
+
+            return;
+        }
+
+        // Обычный фиолетовый разлом.
         drawPathTextured(
-                poseStack,
-                vertices,
-                geometry.mainPath,
-                SIDES,
-                pulse,
-                age,
-                2.25F * breathing,
-                14,
+                poseStack, vertices, geometry.mainPath, SIDES,
+                pulse, age, 2.25F * breathing, 14,
                 135, 130, 180
         );
 
-        // Средний слой.
         drawPathTextured(
-                poseStack,
-                vertices,
-                geometry.mainPath,
-                SIDES,
-                pulse,
-                age,
-                1.75F * breathing,
-                24,
+                poseStack, vertices, geometry.mainPath, SIDES,
+                pulse, age, 1.75F * breathing, 24,
                 160, 145, 210
         );
 
-        // Ближний слой, наиболее заметный.
         drawPathTextured(
-                poseStack,
-                vertices,
-                geometry.mainPath,
-                SIDES,
-                pulse,
-                age,
-                1.25F * breathing,
-                40,
+                poseStack, vertices, geometry.mainPath, SIDES,
+                pulse, age, 1.25F * breathing, 40,
                 195, 180, 235
         );
 
-        // Дымка вокруг дополнительных ответвлений.
         for (RiftPath branch : geometry.branches) {
             drawPathTextured(
-                    poseStack,
-                    vertices,
-                    branch,
-                    BRANCH_SIDES,
-                    pulse,
-                    age,
-                    2.0F * breathing,
-                    9,
+                    poseStack, vertices, branch, BRANCH_SIDES,
+                    pulse, age, 2.0F * breathing, 9,
                     135, 130, 180
             );
 
             drawPathTextured(
-                    poseStack,
-                    vertices,
-                    branch,
-                    BRANCH_SIDES,
-                    pulse,
-                    age,
-                    1.55F * breathing,
-                    17,
+                    poseStack, vertices, branch, BRANCH_SIDES,
+                    pulse, age, 1.55F * breathing, 17,
                     160, 145, 210
             );
 
             drawPathTextured(
-                    poseStack,
-                    vertices,
-                    branch,
-                    BRANCH_SIDES,
-                    pulse,
-                    age,
-                    1.15F * breathing,
-                    29,
+                    poseStack, vertices, branch, BRANCH_SIDES,
+                    pulse, age, 1.15F * breathing, 29,
                     195, 180, 235
             );
         }
     }
+
 
 }

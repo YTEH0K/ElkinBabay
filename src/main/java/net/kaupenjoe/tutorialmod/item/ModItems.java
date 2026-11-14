@@ -11,6 +11,7 @@ import net.minecraft.world.item.TooltipFlag;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
+import net.kaupenjoe.tutorialmod.item.custom.RiftSealItem;
 
 import java.util.List;
 
@@ -41,6 +42,11 @@ public class ModItems {
             () -> new FuelItem(new Item.Properties(), 800));
     public static final DeferredItem<Item> STARLIGHT_ASHES = ITEMS.register("starlight_ashes",
             () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> RIFT_SEAL =
+            ITEMS.register("rift_seal",
+                    () -> new RiftSealItem(
+                            new Item.Properties().stacksTo(16)
+                    ));
 
 
     public static void register(IEventBus eventBus) {

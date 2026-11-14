@@ -3,5 +3,8 @@
   "message.tutorialmod.rift.to_overworld": "Разлом перенёс вас в Верхний мир.",
   "message.tutorialmod.rift.to_prison": "Вы вернулись в убежище.",
   "message.tutorialmod.rift.no_destination": "Разлом не смог найти безопасное место для перехода.",
-  "entity.tutorialmod.rift": "Разлом"
+  "entity.tutorialmod.rift": "Разлом",
+  "item.tutorialmod.rift_seal": "Печать разлома",
+  "tooltip.tutorialmod.rift_seal": "Защищает от агрессивного разлома на 8 секунд.",
+  "message.tutorialmod.rift.seal_activated": "Печать разрывает связь с агрессивным разломом."
 }

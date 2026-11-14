@@ -26,6 +26,7 @@ import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.kaupenjoe.tutorialmod.distortion.DistortionManager;
+import net.kaupenjoe.tutorialmod.rift.RiftProtection;
 
 import java.util.HashSet;
 import java.util.UUID;
@@ -457,7 +458,8 @@ public final class RiftManager {
             double dy = player.getY() - riftPosition.y;
             double dz = player.getZ() - riftPosition.z;
 
-            if (dx * dx + dy * dy + dz * dz <= radius * radius) {
+            if (dx * dx + dy * dy + dz * dz <= radius * radius
+                    && !RiftProtection.isProtected(player)) {
                 nearbyPlayers.add(player);
             }
         }
