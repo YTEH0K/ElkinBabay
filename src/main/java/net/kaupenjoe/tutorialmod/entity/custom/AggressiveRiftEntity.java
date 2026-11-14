@@ -35,7 +35,10 @@ public class AggressiveRiftEntity extends Entity {
                     1.35F
             );
 
+    private static final int TELEPORT_RETRY_INTERVAL_TICKS = 10;
+
     private int remainingTicks = DURATION_TICKS;
+    private int teleportRetryTicks = 0;
 
     public AggressiveRiftEntity(
             EntityType<? extends AggressiveRiftEntity> entityType,
@@ -56,18 +59,24 @@ public class AggressiveRiftEntity extends Entity {
     protected void readAdditionalSaveData(CompoundTag tag) {
         if (tag.contains("RemainingTicks")) {
             this.remainingTicks = Math.max(
-                    1,
+                    0,
                     Math.min(
                             DURATION_TICKS,
                             tag.getInt("RemainingTicks")
                     )
             );
         }
+
+        this.teleportRetryTicks = Math.max(
+                0,
+                tag.getInt("TeleportRetryTicks")
+        );
     }
 
     @Override
     protected void addAdditionalSaveData(CompoundTag tag) {
         tag.putInt("RemainingTicks", this.remainingTicks);
+        tag.putInt("TeleportRetryTicks", this.teleportRetryTicks);
     }
 
     @Override
@@ -84,9 +93,11 @@ public class AggressiveRiftEntity extends Entity {
 
         int elapsedTicks = DURATION_TICKS - remainingTicks;
 
+        // Продолжаем притягивать игроков даже после окончания таймера.
         applyPullAndTethers(serverLevel, elapsedTicks);
 
-        if (elapsedTicks % 20 == 0) {
+        // Звуки обратного отсчёта.
+        if (remainingTicks > 0 && elapsedTicks % 20 == 0) {
             serverLevel.playSound(
                     null,
                     this.getX(),
@@ -99,7 +110,8 @@ public class AggressiveRiftEntity extends Entity {
             );
         }
 
-        if (elapsedTicks == 0 || elapsedTicks == 60) {
+        if (remainingTicks > 0 &&
+                (elapsedTicks == 0 || elapsedTicks == 60)) {
             serverLevel.playSound(
                     null,
                     this.getX(),
@@ -117,8 +129,7 @@ public class AggressiveRiftEntity extends Entity {
             double rotation = elapsedTicks * 0.35D;
 
             for (int i = 0; i < 4; i++) {
-                double angle =
-                        rotation + i * Math.PI / 2.0D;
+                double angle = rotation + i * Math.PI / 2.0D;
 
                 double particleX =
                         this.getX() + Math.cos(angle) * 1.2D;
@@ -157,18 +168,33 @@ public class AggressiveRiftEntity extends Entity {
             );
         }
 
-        remainingTicks--;
+        // Основной отсчёт пяти секунд.
+        if (remainingTicks > 0) {
+            remainingTicks--;
+        }
 
-        // Телепортация происходит только по завершении пяти секунд.
+        // Время вышло: удерживаем игроков и пытаемся телепортировать.
         if (remainingTicks <= 0) {
-            RiftManager.teleportPlayersFromAggressiveRift(
-                    serverLevel,
-                    this.position(),
-                    EFFECT_RADIUS,
-                    50000
-            );
 
-            this.discard();
+            if (teleportRetryTicks > 0) {
+                teleportRetryTicks--;
+                return;
+            }
+
+            teleportRetryTicks = TELEPORT_RETRY_INTERVAL_TICKS;
+
+            int teleportedPlayers =
+                    RiftManager.teleportPlayersFromAggressiveRift(
+                            serverLevel,
+                            this.position(),
+                            EFFECT_RADIUS,
+                            50000
+                    );
+
+            // Удаляем разлом только после успешной телепортации.
+            if (teleportedPlayers > 0) {
+                this.discard();
+            }
         }
     }
 
@@ -190,9 +216,10 @@ public class AggressiveRiftEntity extends Entity {
                 elapsedTicks / (double) (DURATION_TICKS - 1)
         );
 
-        // Притяжение усиливается на протяжении пяти секунд.
-        double pullStrength =
-                0.0015D + 0.0105D * progress * progress;
+// Минимальная скорость притяжения постепенно растёт.
+// К концу таймера достигает 0.42 блока за тик.
+        double desiredPullSpeed =
+                0.07D + 0.35D * progress * progress;
 
         for (ServerPlayer player : level.getEntitiesOfClass(
                 ServerPlayer.class,
@@ -227,19 +254,31 @@ public class AggressiveRiftEntity extends Entity {
                 );
             }
 
-            // Притягиваем игрока, если он ещё не достиг центра.
-            if (distance > 1.6D) {
-                player.setDeltaMovement(
-                        player.getDeltaMovement().add(
-                                toRift.scale(
-                                        pullStrength / distance
-                                )
-                        )
-                );
+// Не вмешиваемся в управление во время творческого полёта.
+            if (distance > 1.6D && !player.getAbilities().flying) {
+                Vec3 pullDirection = toRift.normalize();
 
-                player.connection.send(
-                        new ClientboundSetEntityMotionPacket(player)
-                );
+                Vec3 currentVelocity = player.getDeltaMovement();
+
+                // Определяем, с какой скоростью игрок движется к разлому.
+                double currentTowardSpeed =
+                        currentVelocity.dot(pullDirection);
+
+                // Если скорости недостаточно, принудительно усиливаем притяжение.
+                if (currentTowardSpeed < desiredPullSpeed) {
+                    double velocityDifference =
+                            desiredPullSpeed - currentTowardSpeed;
+
+                    player.setDeltaMovement(
+                            currentVelocity.add(
+                                    pullDirection.scale(velocityDifference)
+                            )
+                    );
+
+                    player.connection.send(
+                            new ClientboundSetEntityMotionPacket(player)
+                    );
+                }
             }
         }
     }
