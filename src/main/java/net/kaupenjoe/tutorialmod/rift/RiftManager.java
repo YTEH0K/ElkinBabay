@@ -39,6 +39,46 @@ import java.util.Set;
 public final class RiftManager {
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    public record AggressiveRiftTeleportResult(
+            int playersInRange,
+            int protectedPlayers,
+            int teleportedPlayers,
+            int failedTeleports
+    ) {
+        public boolean isResolved() {
+            return playersInRange > 0 && failedTeleports == 0;
+        }
+    }
+
+    public static BlockPos prepareAggressiveDestination(
+            ServerLevel level,
+            int worldRadius
+    ) {
+        BlockPos destination = findRandomAggressiveDestination(
+                level,
+                worldRadius
+        );
+
+        if (destination == null) {
+            return null;
+        }
+
+        int chunkX = destination.getX() >> 4;
+        int chunkZ = destination.getZ() >> 4;
+
+        // Загружаем область 3×3 вокруг будущего места появления.
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                level.getChunk(
+                        chunkX + dx,
+                        chunkZ + dz
+                );
+            }
+        }
+
+        return destination;
+    }
+
     public static final ResourceKey<Level> PRISON_DIMENSION = ResourceKey.create(
             Registries.DIMENSION,
             ResourceLocation.fromNamespaceAndPath(TutorialMod.MOD_ID, "prison")
@@ -429,14 +469,16 @@ public final class RiftManager {
         return player.position().add(0.0D, 1.0D, 0.0D);
     }
 
-    public static int teleportPlayersFromAggressiveRift(
+    public static AggressiveRiftTeleportResult teleportPlayersFromAggressiveRift(
             ServerLevel level,
             Vec3 riftPosition,
             double radius,
-            int worldRadius
+            int worldRadius,
+            UUID resolvingRiftId,
+            BlockPos preparedDestination
     ) {
         if (!level.dimension().equals(Level.OVERWORLD)) {
-            return 0;
+            return new AggressiveRiftTeleportResult(0, 0, 0, 0);
         }
 
         AABB searchBounds = new AABB(
@@ -448,7 +490,10 @@ public final class RiftManager {
                 riftPosition.z + radius
         );
 
-        List<ServerPlayer> nearbyPlayers = new ArrayList<>();
+        List<ServerPlayer> teleportTargets = new ArrayList<>();
+
+        int playersInRange = 0;
+        int protectedPlayers = 0;
 
         for (ServerPlayer player : level.getEntitiesOfClass(
                 ServerPlayer.class,
@@ -458,32 +503,67 @@ public final class RiftManager {
             double dy = player.getY() - riftPosition.y;
             double dz = player.getZ() - riftPosition.z;
 
-            if (dx * dx + dy * dy + dz * dz <= radius * radius
-                    && !RiftProtection.isProtected(player)) {
-                nearbyPlayers.add(player);
+            if (dx * dx + dy * dy + dz * dz > radius * radius) {
+                continue;
             }
+
+            playersInRange++;
+
+            if (RiftProtection.isProtected(player)) {
+                protectedPlayers++;
+                continue;
+            }
+
+            teleportTargets.add(player);
         }
 
-        if (nearbyPlayers.isEmpty()) {
-            return 0;
+        if (playersInRange == 0) {
+            return new AggressiveRiftTeleportResult(0, 0, 0, 0);
         }
 
-        BlockPos destination = findRandomAggressiveDestination(
-                level,
-                worldRadius
-        );
+        // Все находящиеся рядом игроки защищены.
+        // Для этого разлома попытка считается завершённой.
+        if (teleportTargets.isEmpty()) {
+            LOGGER.info(
+                    "Aggressive rift was blocked by protection. Protected players: {}",
+                    protectedPlayers
+            );
+
+            return new AggressiveRiftTeleportResult(
+                    playersInRange,
+                    protectedPlayers,
+                    0,
+                    0
+            );
+        }
+
+        BlockPos destination = preparedDestination;
+
+        if (destination == null) {
+            destination = prepareAggressiveDestination(
+                    level,
+                    worldRadius
+            );
+        }
 
         if (destination == null) {
             LOGGER.error(
                     "Aggressive rift could not find a safe destination within {} blocks.",
                     worldRadius
             );
-            return 0;
+
+            return new AggressiveRiftTeleportResult(
+                    playersInRange,
+                    protectedPlayers,
+                    0,
+                    teleportTargets.size()
+            );
         }
 
         int teleportedPlayers = 0;
+        int failedTeleports = 0;
 
-        for (ServerPlayer player : nearbyPlayers) {
+        for (ServerPlayer player : teleportTargets) {
             boolean teleported = player.teleportTo(
                     level,
                     destination.getX() + 0.5D,
@@ -495,6 +575,7 @@ public final class RiftManager {
             );
 
             if (!teleported) {
+                failedTeleports++;
                 continue;
             }
 
@@ -507,7 +588,11 @@ public final class RiftManager {
                     )
             );
 
-            resetAggressiveRiftTimer(level, player);
+            resetAggressiveRiftTimer(
+                    level,
+                    player,
+                    resolvingRiftId
+            );
 
             DistortionManager.addDistortion(player, 100);
 
@@ -515,17 +600,25 @@ public final class RiftManager {
         }
 
         LOGGER.info(
-                "Aggressive rift teleported {} players to {}",
+                "Aggressive rift result: teleported={}, protected={}, failed={}, destination={}",
                 teleportedPlayers,
+                protectedPlayers,
+                failedTeleports,
                 destination
         );
 
-        return teleportedPlayers;
+        return new AggressiveRiftTeleportResult(
+                playersInRange,
+                protectedPlayers,
+                teleportedPlayers,
+                failedTeleports
+        );
     }
 
     private static void resetAggressiveRiftTimer(
             ServerLevel level,
-            ServerPlayer player
+            ServerPlayer player,
+            UUID resolvingRiftId
     ) {
         AggressiveRiftState state = aggressiveRiftStates.computeIfAbsent(
                 player.getUUID(),
@@ -534,7 +627,15 @@ public final class RiftManager {
                 )
         );
 
-        discardActiveAggressiveRift(level, state);
+        if (state.activeRiftId != null) {
+            // Не удаляем разлом, который сейчас выполняет телепортацию.
+            // Он сам завершит работу после получения результата.
+            if (state.activeRiftId.equals(resolvingRiftId)) {
+                state.activeRiftId = null;
+            } else {
+                discardActiveAggressiveRift(level, state);
+            }
+        }
 
         state.nextSpawnTick =
                 level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS;

@@ -17,11 +17,21 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
+import net.minecraft.core.BlockPos;
 
 public class AggressiveRiftEntity extends Entity {
 
     private static final int DURATION_TICKS = 20 * 5;
     private static final double EFFECT_RADIUS = 100.0D;
+
+    private static final int TELEPORT_RETRY_INTERVAL_TICKS = 10;
+    private static final int POST_TELEPORT_VISUAL_TICKS = 20;
+
+    private int teleportRetryTicks = 0;
+    private int postTeleportTicks = -1;
+
+    private boolean destinationPreparationAttempted = false;
+    private BlockPos preparedDestination = null;
 
     private static final DustParticleOptions RED_TETHER =
             new DustParticleOptions(
@@ -60,10 +70,7 @@ public class AggressiveRiftEntity extends Entity {
         if (tag.contains("RemainingTicks")) {
             this.remainingTicks = Math.max(
                     0,
-                    Math.min(
-                            DURATION_TICKS,
-                            tag.getInt("RemainingTicks")
-                    )
+                    Math.min(DURATION_TICKS, tag.getInt("RemainingTicks"))
             );
         }
 
@@ -71,12 +78,50 @@ public class AggressiveRiftEntity extends Entity {
                 0,
                 tag.getInt("TeleportRetryTicks")
         );
+
+        this.teleportRetryTicks = Math.max(
+                0,
+                tag.getInt("TeleportRetryTicks")
+        );
+
+        this.postTeleportTicks = tag.contains("PostTeleportTicks")
+                ? tag.getInt("PostTeleportTicks")
+                : -1;
+
+        this.destinationPreparationAttempted =
+                tag.getBoolean("DestinationPreparationAttempted");
+
+        if (tag.getBoolean("HasPreparedDestination")) {
+            this.preparedDestination = new BlockPos(
+                    tag.getInt("PreparedDestinationX"),
+                    tag.getInt("PreparedDestinationY"),
+                    tag.getInt("PreparedDestinationZ")
+            );
+        }
     }
 
     @Override
     protected void addAdditionalSaveData(CompoundTag tag) {
         tag.putInt("RemainingTicks", this.remainingTicks);
         tag.putInt("TeleportRetryTicks", this.teleportRetryTicks);
+        tag.putInt("TeleportRetryTicks", this.teleportRetryTicks);
+        tag.putInt("PostTeleportTicks", this.postTeleportTicks);
+
+        tag.putBoolean(
+                "DestinationPreparationAttempted",
+                this.destinationPreparationAttempted
+        );
+
+        tag.putBoolean(
+                "HasPreparedDestination",
+                this.preparedDestination != null
+        );
+
+        if (this.preparedDestination != null) {
+            tag.putInt("PreparedDestinationX", this.preparedDestination.getX());
+            tag.putInt("PreparedDestinationY", this.preparedDestination.getY());
+            tag.putInt("PreparedDestinationZ", this.preparedDestination.getZ());
+        }
     }
 
     @Override
@@ -88,6 +133,17 @@ public class AggressiveRiftEntity extends Entity {
         }
 
         if (!(this.level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+
+        // После завершения телепортации оставляем портал видимым ещё на секунду.
+        if (postTeleportTicks >= 0) {
+            if (postTeleportTicks == 0) {
+                this.discard();
+            } else {
+                postTeleportTicks--;
+            }
+
             return;
         }
 
@@ -173,9 +229,20 @@ public class AggressiveRiftEntity extends Entity {
             remainingTicks--;
         }
 
-        // Время вышло: удерживаем игроков и пытаемся телепортировать.
-        if (remainingTicks <= 0) {
+// За секунду до телепортации заранее выбираем место назначения
+// и загружаем область вокруг него.
+        if (remainingTicks <= 20 && !destinationPreparationAttempted) {
+            destinationPreparationAttempted = true;
 
+            preparedDestination =
+                    RiftManager.prepareAggressiveDestination(
+                            serverLevel,
+                            50000
+                    );
+        }
+
+// После окончания пяти секунд начинаем телепортацию.
+        if (remainingTicks <= 0) {
             if (teleportRetryTicks > 0) {
                 teleportRetryTicks--;
                 return;
@@ -183,17 +250,19 @@ public class AggressiveRiftEntity extends Entity {
 
             teleportRetryTicks = TELEPORT_RETRY_INTERVAL_TICKS;
 
-            int teleportedPlayers =
+            RiftManager.AggressiveRiftTeleportResult result =
                     RiftManager.teleportPlayersFromAggressiveRift(
                             serverLevel,
                             this.position(),
                             EFFECT_RADIUS,
-                            50000
+                            50000,
+                            this.getUUID(),
+                            preparedDestination
                     );
 
-            // Удаляем разлом только после успешной телепортации.
-            if (teleportedPlayers > 0) {
-                this.discard();
+            if (result.isResolved()) {
+                // Не удаляем портал мгновенно.
+                postTeleportTicks = POST_TELEPORT_VISUAL_TICKS;
             }
         }
     }
