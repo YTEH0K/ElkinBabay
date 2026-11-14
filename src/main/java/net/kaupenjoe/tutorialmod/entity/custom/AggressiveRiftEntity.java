@@ -24,10 +24,8 @@ public class AggressiveRiftEntity extends Entity {
     private static final int DURATION_TICKS = 20 * 5;
     private static final double EFFECT_RADIUS = 100.0D;
 
-    private static final int TELEPORT_RETRY_INTERVAL_TICKS = 10;
     private static final int POST_TELEPORT_VISUAL_TICKS = 20;
 
-    private int teleportRetryTicks = 0;
     private int postTeleportTicks = -1;
 
     private boolean destinationPreparationAttempted = false;
