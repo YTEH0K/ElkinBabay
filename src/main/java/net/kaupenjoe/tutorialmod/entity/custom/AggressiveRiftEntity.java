@@ -286,7 +286,7 @@ public class AggressiveRiftEntity extends Entity {
 // Минимальная скорость притяжения постепенно растёт.
 // К концу таймера достигает 0.42 блока за тик.
         double desiredPullSpeed =
-                0.07D + 0.35D * progress * progress;
+                0.07D + 1.00D * progress * progress;
 
         for (ServerPlayer player : level.getEntitiesOfClass(
                 ServerPlayer.class,

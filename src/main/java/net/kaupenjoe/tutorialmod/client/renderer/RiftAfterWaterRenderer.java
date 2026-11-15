@@ -55,6 +55,7 @@ public final class RiftAfterWaterRenderer {
     private static final Map<UUID, RiftGeometry> GEOMETRY_CACHE =
             new HashMap<>();
 
+
     private static ClientLevel cachedLevel;
 
     private RiftAfterWaterRenderer() {
@@ -220,27 +221,12 @@ public final class RiftAfterWaterRenderer {
                     )
             );
 
-            drawPath(
+            drawSdfPortal(
                     poseStack,
                     portalVertices,
-                    geometry.mainPath,
-                    SIDES,
-                    pulse,
-                    age,
-                    0.84F
+                    geometry.mesh,
+                    pulse
             );
-
-            for (RiftPath branch : geometry.branches) {
-                drawPath(
-                        poseStack,
-                        portalVertices,
-                        branch,
-                        BRANCH_SIDES,
-                        pulse,
-                        age,
-                        0.84F
-                );
-            }
 
             poseStack.popPose();
         }
@@ -288,27 +274,26 @@ public final class RiftAfterWaterRenderer {
 
 
             if (aggressive) {
-                drawPathTextured(
+                drawSdfTextured(
                         poseStack,
                         surfaceVertices,
-                        geometry.mainPath,
-                        SIDES,
+                        geometry.mesh,
                         pulse,
-                        age,
-                        1.0F,
+                        0.0F,
                         190,
-                        255, 75, 55
+                        255, 75, 55,
+                        age
                 );
             } else {
-                drawPathTextured(
+                drawSdfTextured(
                         poseStack,
                         surfaceVertices,
-                        geometry.mainPath,
-                        SIDES,
+                        geometry.mesh,
                         pulse,
-                        age,
-                        1.0F,
-                        190
+                        0.0F,
+                        190,
+                        225, 205, 255,
+                        age
                 );
             }
 
@@ -395,6 +380,29 @@ public final class RiftAfterWaterRenderer {
                 geometry.branches.add(branch);
             }
         }
+// Собираем все трубки в один набор исходных данных.
+        List<RiftSdfMesher.PathData> sdfPaths = new ArrayList<>();
+
+        sdfPaths.add(new RiftSdfMesher.PathData(
+                geometry.mainPath.centers,
+                geometry.mainPath.radii,
+                geometry.mainPath.normals,
+                geometry.mainPath.binormals,
+                geometry.mainPath.twistOffset
+        ));
+
+        for (RiftPath branch : geometry.branches) {
+            sdfPaths.add(new RiftSdfMesher.PathData(
+                    branch.centers,
+                    branch.radii,
+                    branch.normals,
+                    branch.binormals,
+                    branch.twistOffset
+            ));
+        }
+
+// Вместо нескольких отдельных трубок получаем одну поверхность.
+        geometry.mesh = RiftSdfMesher.build(sdfPaths);
 
         return geometry;
     }
@@ -882,6 +890,7 @@ public final class RiftAfterWaterRenderer {
 
         private float rotationOffset;
         private float phase;
+        private RiftSdfMesher.Mesh mesh;
     }
 
     private static final class RiftPath {
@@ -1087,92 +1096,195 @@ public final class RiftAfterWaterRenderer {
             float age,
             boolean aggressive
     ) {
+        RiftSdfMesher.Mesh mesh = geometry.mesh;
+
+        if (mesh == null || mesh.isEmpty()) {
+            return;
+        }
+
         float breathing =
                 1.0F + Mth.sin(
                         age * 0.035F + geometry.phase
                 ) * 0.035F;
 
+        // Расширяем единую поверхность вдоль её нормалей.
+        // Это сохраняет форму объединённого разлома.
+        float outerOffset =
+                mesh.maxRadius * 1.25F * breathing;
+
+        float middleOffset =
+                mesh.maxRadius * 0.75F * breathing;
+
+        float innerOffset =
+                mesh.maxRadius * 0.25F * breathing;
+
         if (aggressive) {
-            drawPathTextured(
-                    poseStack, vertices, geometry.mainPath, SIDES,
-                    pulse, age, 2.25F * breathing, 14,
-                    105, 8, 12
+            drawSdfTextured(
+                    poseStack, vertices, mesh,
+                    pulse, outerOffset, 14,
+                    105, 8, 12, age
             );
 
-            drawPathTextured(
-                    poseStack, vertices, geometry.mainPath, SIDES,
-                    pulse, age, 1.75F * breathing, 24,
-                    175, 18, 22
+            drawSdfTextured(
+                    poseStack, vertices, mesh,
+                    pulse, middleOffset, 24,
+                    175, 18, 22, age
             );
 
-            drawPathTextured(
-                    poseStack, vertices, geometry.mainPath, SIDES,
-                    pulse, age, 1.25F * breathing, 40,
-                    255, 65, 42
+            drawSdfTextured(
+                    poseStack, vertices, mesh,
+                    pulse, innerOffset, 40,
+                    255, 65, 42, age
             );
-
-            for (RiftPath branch : geometry.branches) {
-                drawPathTextured(
-                        poseStack, vertices, branch, BRANCH_SIDES,
-                        pulse, age, 2.0F * breathing, 9,
-                        105, 8, 12
-                );
-
-                drawPathTextured(
-                        poseStack, vertices, branch, BRANCH_SIDES,
-                        pulse, age, 1.55F * breathing, 17,
-                        175, 18, 22
-                );
-
-                drawPathTextured(
-                        poseStack, vertices, branch, BRANCH_SIDES,
-                        pulse, age, 1.15F * breathing, 29,
-                        255, 65, 42
-                );
-            }
 
             return;
         }
 
         // Обычный фиолетовый разлом.
-        drawPathTextured(
-                poseStack, vertices, geometry.mainPath, SIDES,
-                pulse, age, 2.25F * breathing, 14,
-                135, 130, 180
+        drawSdfTextured(
+                poseStack, vertices, mesh,
+                pulse, outerOffset, 14,
+                135, 130, 180, age
         );
 
-        drawPathTextured(
-                poseStack, vertices, geometry.mainPath, SIDES,
-                pulse, age, 1.75F * breathing, 24,
-                160, 145, 210
+        drawSdfTextured(
+                poseStack, vertices, mesh,
+                pulse, middleOffset, 24,
+                160, 145, 210, age
         );
 
-        drawPathTextured(
-                poseStack, vertices, geometry.mainPath, SIDES,
-                pulse, age, 1.25F * breathing, 40,
-                195, 180, 235
+        drawSdfTextured(
+                poseStack, vertices, mesh,
+                pulse, innerOffset, 40,
+                195, 180, 235, age
         );
+    }
 
-        for (RiftPath branch : geometry.branches) {
-            drawPathTextured(
-                    poseStack, vertices, branch, BRANCH_SIDES,
-                    pulse, age, 2.0F * breathing, 9,
-                    135, 130, 180
+    private static void drawSdfPortal(
+            PoseStack poseStack,
+            VertexConsumer vertices,
+            RiftSdfMesher.Mesh mesh,
+            float pulse
+    ) {
+        if (mesh == null || mesh.isEmpty()) {
+            return;
+        }
+
+        PoseStack.Pose pose = poseStack.last();
+
+        List<RiftSdfMesher.Vertex> meshVertices = mesh.vertices;
+
+        for (int i = 0; i + 2 < meshVertices.size(); i += 3) {
+            Vec3 a = meshVertices.get(i).position().scale(pulse);
+            Vec3 b = meshVertices.get(i + 1).position().scale(pulse);
+            Vec3 c = meshVertices.get(i + 2).position().scale(pulse);
+
+            // Передняя сторона треугольника.
+            emitQuad(vertices, pose, a, b, c, c);
+
+            // Обратная сторона, чтобы портал был виден изнутри.
+            emitQuad(vertices, pose, c, b, a, a);
+        }
+    }
+
+
+    private static void drawSdfTextured(
+            PoseStack poseStack,
+            VertexConsumer vertices,
+            RiftSdfMesher.Mesh mesh,
+            float pulse,
+            float normalOffset,
+            int alpha,
+            int red,
+            int green,
+            int blue,
+            float age
+    ) {
+        if (mesh == null || mesh.isEmpty()) {
+            return;
+        }
+
+        PoseStack.Pose pose = poseStack.last();
+
+        List<RiftSdfMesher.Vertex> meshVertices = mesh.vertices;
+
+        for (int i = 0; i + 2 < meshVertices.size(); i += 3) {
+            RiftSdfMesher.Vertex a = meshVertices.get(i);
+            RiftSdfMesher.Vertex b = meshVertices.get(i + 1);
+            RiftSdfMesher.Vertex c = meshVertices.get(i + 2);
+
+            emitSdfVertex(
+                    vertices, pose, a,
+                    pulse, normalOffset,
+                    alpha, red, green, blue, age
             );
 
-            drawPathTextured(
-                    poseStack, vertices, branch, BRANCH_SIDES,
-                    pulse, age, 1.55F * breathing, 17,
-                    160, 145, 210
+            emitSdfVertex(
+                    vertices, pose, b,
+                    pulse, normalOffset,
+                    alpha, red, green, blue, age
             );
 
-            drawPathTextured(
-                    poseStack, vertices, branch, BRANCH_SIDES,
-                    pulse, age, 1.15F * breathing, 29,
-                    195, 180, 235
+            emitSdfVertex(
+                    vertices, pose, c,
+                    pulse, normalOffset,
+                    alpha, red, green, blue, age
+            );
+
+            // Последняя вершина повторяется, поскольку RenderType
+            // использует формат QUADS.
+            emitSdfVertex(
+                    vertices, pose, c,
+                    pulse, normalOffset,
+                    alpha, red, green, blue, age
             );
         }
     }
 
+
+    private static void emitSdfVertex(
+            VertexConsumer vertices,
+            PoseStack.Pose pose,
+            RiftSdfMesher.Vertex vertex,
+            float pulse,
+            float normalOffset,
+            int alpha,
+            int red,
+            int green,
+            int blue,
+            float age
+    ) {
+        Vec3 normal = vertex.normal();
+
+        Vec3 position = vertex.position()
+                .scale(pulse)
+                .add(normal.scale(normalOffset * pulse));
+
+        float u = wrapTextureCoordinate(
+                vertex.u() + age * 0.00035F
+        );
+
+        float v = wrapTextureCoordinate(
+                vertex.v() + age * 0.00020F
+        );
+
+        emitTexturedVertex(
+                vertices,
+                pose,
+                position,
+                normal,
+                u,
+                v,
+                red,
+                green,
+                blue,
+                alpha
+        );
+    }
+
+
+    private static float wrapTextureCoordinate(float value) {
+        return value - (float) Math.floor(value);
+    }
 
 }
