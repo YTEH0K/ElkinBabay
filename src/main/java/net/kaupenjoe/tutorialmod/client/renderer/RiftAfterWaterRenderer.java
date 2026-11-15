@@ -559,9 +559,127 @@ public final class RiftAfterWaterRenderer {
 
         path.twistOffset = random.nextFloat() * Mth.TWO_PI;
 
+        preventTubeFolding(path);
+
         buildFrames(path);
 
         return path;
+    }
+
+    private static void preventTubeFolding(RiftPath path) {
+        int count = path.centers.length;
+
+        if (count < 3) {
+            return;
+        }
+
+        // 1. Ограничиваем радиус на слишком резких изгибах.
+        for (int i = 1; i < count - 1; i++) {
+            Vec3 incoming = path.centers[i]
+                    .subtract(path.centers[i - 1]);
+
+            Vec3 outgoing = path.centers[i + 1]
+                    .subtract(path.centers[i]);
+
+            double incomingLength = incoming.length();
+            double outgoingLength = outgoing.length();
+
+            if (incomingLength < 0.000001D
+                    || outgoingLength < 0.000001D) {
+                continue;
+            }
+
+            double dot = Mth.clamp(
+                    incoming.dot(outgoing)
+                            / (incomingLength * outgoingLength),
+                    -1.0D,
+                    1.0D
+            );
+
+            double angle = Math.acos(dot);
+
+            if (angle < 0.01D) {
+                continue;
+            }
+
+            double averageStep =
+                    (incomingLength + outgoingLength) * 0.5D;
+
+            double curvatureRadius =
+                    averageStep / (2.0D * Math.sin(angle * 0.5D));
+
+            double maxAllowedRadius = curvatureRadius * 0.62D;
+
+            path.radii[i] = Math.min(
+                    path.radii[i],
+                    (float) maxAllowedRadius
+            );
+        }
+
+        // 2. Вычисляем расстояние вдоль центральной линии.
+        double[] arcLengths = new double[count];
+
+        for (int i = 1; i < count; i++) {
+            arcLengths[i] = arcLengths[i - 1]
+                    + path.centers[i].distanceTo(path.centers[i - 1]);
+        }
+
+        // 3. Ищем участки, которые сближаются друг с другом.
+        for (int pass = 0; pass < 3; pass++) {
+            float[] previousRadii = path.radii.clone();
+
+            for (int i = 0; i < count; i++) {
+                for (int j = i + 4; j < count; j++) {
+                    double radiusSum =
+                            previousRadii[i] + previousRadii[j];
+
+                    double arcDistance =
+                            arcLengths[j] - arcLengths[i];
+
+                    // Игнорируем соседние участки одной плавной кривой.
+                    if (arcDistance < radiusSum * 1.35D) {
+                        continue;
+                    }
+
+                    double distance = path.centers[i]
+                            .distanceTo(path.centers[j]);
+
+                    if (distance < radiusSum * 1.15D) {
+                        float safeRadius = (float) Math.max(
+                                0.002D,
+                                distance * 0.40D
+                        );
+
+                        path.radii[i] = Math.min(
+                                path.radii[i],
+                                safeRadius
+                        );
+
+                        path.radii[j] = Math.min(
+                                path.radii[j],
+                                safeRadius
+                        );
+                    }
+                }
+            }
+        }
+
+        // 4. Сглаживаем переходы толщины, чтобы не было резких сужений.
+        for (int pass = 0; pass < 2; pass++) {
+            float[] previousRadii = path.radii.clone();
+
+            for (int i = 1; i < count - 1; i++) {
+                float smoothedRadius =
+                        previousRadii[i - 1] * 0.25F
+                                + previousRadii[i] * 0.50F
+                                + previousRadii[i + 1] * 0.25F;
+
+                path.radii[i] = Math.min(
+                        previousRadii[i],
+                        smoothedRadius
+                );
+            }
+        }
     }
 
     private static Vec3 sampleCurve(Vec3[] controls, double t) {
