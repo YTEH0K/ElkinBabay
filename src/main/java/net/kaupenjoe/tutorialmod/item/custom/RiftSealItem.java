@@ -1,7 +1,7 @@
 
 package net.kaupenjoe.tutorialmod.item.custom;
 
-import net.kaupenjoe.tutorialmod.rift.RiftProtection;
+import net.kaupenjoe.tutorialmod.rift.RiftManager;
 import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -21,7 +21,7 @@ import java.util.List;
 
 public class RiftSealItem extends Item {
 
-    public static final int PROTECTION_TICKS = 20 * 8;
+    private static final int USE_COOLDOWN_TICKS = 20 * 8;
 
     private static final DustParticleOptions SEAL_PARTICLE =
             new DustParticleOptions(
@@ -45,10 +45,18 @@ public class RiftSealItem extends Item {
                 && player instanceof ServerPlayer serverPlayer
                 && !player.getCooldowns().isOnCooldown(this)) {
 
-            RiftProtection.protect(
-                    serverPlayer,
-                    PROTECTION_TICKS
-            );
+            boolean cancelled =
+                    RiftManager.cancelNearestAggressiveRift(serverPlayer);
+
+            if (!cancelled) {
+                serverPlayer.sendSystemMessage(
+                        Component.translatable(
+                                "message.tutorialmod.rift.seal_no_rift"
+                        )
+                );
+
+                return InteractionResultHolder.fail(stack);
+            }
 
             if (!player.getAbilities().instabuild) {
                 stack.shrink(1);
@@ -56,7 +64,7 @@ public class RiftSealItem extends Item {
 
             player.getCooldowns().addCooldown(
                     this,
-                    PROTECTION_TICKS
+                    USE_COOLDOWN_TICKS
             );
 
             serverPlayer.sendSystemMessage(

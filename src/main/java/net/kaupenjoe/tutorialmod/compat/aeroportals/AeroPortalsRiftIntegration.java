@@ -23,7 +23,7 @@ import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
-
+import net.kaupenjoe.tutorialmod.rift.RiftManager;
 import net.kaupenjoe.tutorialmod.entity.custom.AggressiveRiftEntity;
 import net.kaupenjoe.tutorialmod.rift.RiftProtection;
 
@@ -124,25 +124,29 @@ public final class AeroPortalsRiftIntegration {
 
                     UUID shipId = sub.getUniqueId();
 
-                    // Печать защищает всю постройку, а не только пассажира.
-                    if (aggressiveRift.isAirshipProtected(shipId)) {
-                        return null;
-                    }
-
-                    if (hasProtectedPassenger(sourceLevel, sub)) {
-                        aggressiveRift.protectAirship(shipId);
-
-                        LOGGER.info(
-                                "Aggressive rift spared airship {} because it has a protected passenger.",
-                                shipId
-                        );
-
-                        return null;
-                    }
 
                     // Не допускаем повторную обработку одного корабля.
                     if (!aggressiveRift.tryStartAirshipTransfer(shipId)) {
                         return null;
+                    }
+
+                    // Сбрасываем таймер всем игрокам около разлома.
+                    RiftManager.resetAggressiveRiftTimersInRadius(
+                            sourceLevel,
+                            aggressiveRift.position(),
+                            AggressiveRiftEntity.EFFECT_RADIUS,
+                            aggressiveRift.getUUID()
+                    );
+
+// Дополнительно сбрасываем таймеры пассажирам этого корабля.
+                    for (ServerPlayer player : sourceLevel.players()) {
+                        if (Sable.HELPER.getTrackingOrVehicleSubLevel(player) == sub) {
+                            RiftManager.resetAggressiveRiftTimerForPlayer(
+                                    sourceLevel,
+                                    player,
+                                    aggressiveRift.getUUID()
+                            );
+                        }
                     }
                 }
 
@@ -217,7 +221,7 @@ public final class AeroPortalsRiftIntegration {
 
             UUID shipId = sub.getUniqueId();
 
-            if (rift.isAirshipProtected(shipId)) {
+            if (rift.isAirshipTransferStarted(shipId)) {
                 continue;
             }
 
@@ -237,15 +241,7 @@ public final class AeroPortalsRiftIntegration {
                             + halfZ * halfZ
             );
 
-            // Учитываем размеры всей постройки, а не только её центр.
             if (distance - halfDiagonal > radius) {
-                continue;
-            }
-
-            // Если на корабле есть защищённый игрок,
-            // не притягиваем и не телепортируем его.
-            if (hasProtectedPassenger(level, sub)) {
-                rift.protectAirship(shipId);
                 continue;
             }
 
@@ -278,7 +274,6 @@ public final class AeroPortalsRiftIntegration {
                 double velocityDifference =
                         desiredPullSpeed - currentTowardSpeed;
 
-                // Ограничиваем изменение скорости за один тик.
                 double appliedSpeed = Math.min(
                         velocityDifference,
                         0.75D
@@ -296,19 +291,6 @@ public final class AeroPortalsRiftIntegration {
         return affectedAirships;
     }
 
-    private static boolean hasProtectedPassenger(
-            ServerLevel level,
-            ServerSubLevel sub
-    ) {
-        for (ServerPlayer player : level.players()) {
-            if (Sable.HELPER.getTrackingOrVehicleSubLevel(player) == sub
-                    && RiftProtection.isProtected(player)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     public static void ensureAggressivePortalMarkers(
             ServerLevel level,
@@ -356,5 +338,12 @@ public final class AeroPortalsRiftIntegration {
 
     public static boolean isEntityOnAirship(Entity entity) {
         return Sable.HELPER.getTrackingOrVehicleSubLevel(entity) != null;
+    }
+
+    public static Vec3 getEntityWorldPosition(Entity entity) {
+        return Sable.HELPER.projectOutOfSubLevel(
+                entity.level(),
+                entity.position()
+        );
     }
 }

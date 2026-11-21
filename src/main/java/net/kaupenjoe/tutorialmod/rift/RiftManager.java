@@ -483,63 +483,44 @@ public final class RiftManager {
             return new AggressiveRiftTeleportResult(0, 0, 0, 0);
         }
 
-        AABB searchBounds = new AABB(
-                riftPosition.x - radius,
-                riftPosition.y - radius,
-                riftPosition.z - radius,
-                riftPosition.x + radius,
-                riftPosition.y + radius,
-                riftPosition.z + radius
-        );
-
+        List<ServerPlayer> playersInRadius = new ArrayList<>();
         List<ServerPlayer> teleportTargets = new ArrayList<>();
 
-        int playersInRange = 0;
-        int protectedPlayers = 0;
+        double radiusSquared = radius * radius;
 
-        for (ServerPlayer player : level.getEntitiesOfClass(
-                ServerPlayer.class,
-                searchBounds
-        )) {
-            double dx = player.getX() - riftPosition.x;
-            double dy = player.getY() - riftPosition.y;
-            double dz = player.getZ() - riftPosition.z;
+        // Используем все серверные подключения, чтобы не пропустить
+        // пассажиров SubLevel.
+        for (ServerPlayer player : level.players()) {
+            Vec3 playerPosition = player.position();
 
-            if (dx * dx + dy * dy + dz * dz > radius * radius) {
+            if (ModList.get().isLoaded("aeroportals")) {
+                playerPosition =
+                        AeroPortalsRiftIntegration.getEntityWorldPosition(player);
+            }
+
+            if (playerPosition.distanceToSqr(riftPosition) > radiusSquared) {
                 continue;
             }
 
-            // Игроки на кораблях перемещаются вместе со своим SubLevel.
+            playersInRadius.add(player);
+
+            // Пассажиры будут перенесены вместе с кораблём.
             if (ModList.get().isLoaded("aeroportals")
                     && AeroPortalsRiftIntegration.isEntityOnAirship(player)) {
-                continue;
-            }
-
-            playersInRange++;
-
-            if (RiftProtection.isProtected(player)) {
-                protectedPlayers++;
                 continue;
             }
 
             teleportTargets.add(player);
         }
 
-        if (playersInRange == 0) {
+        if (playersInRadius.isEmpty()) {
             return new AggressiveRiftTeleportResult(0, 0, 0, 0);
         }
 
-        // Все находящиеся рядом игроки защищены.
-        // Для этого разлома попытка считается завершённой.
         if (teleportTargets.isEmpty()) {
-            LOGGER.info(
-                    "Aggressive rift was blocked by protection. Protected players: {}",
-                    protectedPlayers
-            );
-
             return new AggressiveRiftTeleportResult(
-                    playersInRange,
-                    protectedPlayers,
+                    playersInRadius.size(),
+                    0,
                     0,
                     0
             );
@@ -561,8 +542,8 @@ public final class RiftManager {
             );
 
             return new AggressiveRiftTeleportResult(
-                    playersInRange,
-                    protectedPlayers,
+                    playersInRadius.size(),
+                    0,
                     0,
                     teleportTargets.size()
             );
@@ -596,58 +577,63 @@ public final class RiftManager {
                     )
             );
 
-            resetAggressiveRiftTimer(
-                    level,
-                    player,
-                    resolvingRiftId
-            );
-
             DistortionManager.addDistortion(player, 100);
 
             teleportedPlayers++;
         }
 
+        // Если хотя бы один игрок успешно телепортирован,
+        // сбрасываем таймер всем, кто находился в радиусе до телепортации.
+        if (teleportedPlayers > 0) {
+            for (ServerPlayer player : playersInRadius) {
+                resetAggressiveRiftTimerForPlayer(
+                        level,
+                        player,
+                        resolvingRiftId
+                );
+            }
+        }
+
         LOGGER.info(
-                "Aggressive rift result: teleported={}, protected={}, failed={}, destination={}",
+                "Aggressive rift result: teleported={}, failed={}, destination={}",
                 teleportedPlayers,
-                protectedPlayers,
                 failedTeleports,
                 destination
         );
 
         return new AggressiveRiftTeleportResult(
-                playersInRange,
-                protectedPlayers,
+                playersInRadius.size(),
+                0,
                 teleportedPlayers,
                 failedTeleports
         );
     }
 
-    private static void resetAggressiveRiftTimer(
-            ServerLevel level,
-            ServerPlayer player,
-            UUID resolvingRiftId
-    ) {
-        AggressiveRiftState state = aggressiveRiftStates.computeIfAbsent(
-                player.getUUID(),
-                uuid -> new AggressiveRiftState(
-                        level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS
-                )
-        );
-
-        if (state.activeRiftId != null) {
-            // Не удаляем разлом, который сейчас выполняет телепортацию.
-            // Он сам завершит работу после получения результата.
-            if (state.activeRiftId.equals(resolvingRiftId)) {
-                state.activeRiftId = null;
-            } else {
-                discardActiveAggressiveRift(level, state);
-            }
-        }
-
-        state.nextSpawnTick =
-                level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS;
-    }
+//    private static void resetAggressiveRiftTimer(
+//            ServerLevel level,
+//            ServerPlayer player,
+//            UUID resolvingRiftId
+//    ) {
+//        AggressiveRiftState state = aggressiveRiftStates.computeIfAbsent(
+//                player.getUUID(),
+//                uuid -> new AggressiveRiftState(
+//                        level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS
+//                )
+//        );
+//
+//        if (state.activeRiftId != null) {
+//            // Не удаляем разлом, который сейчас выполняет телепортацию.
+//            // Он сам завершит работу после получения результата.
+//            if (state.activeRiftId.equals(resolvingRiftId)) {
+//                state.activeRiftId = null;
+//            } else {
+//                discardActiveAggressiveRift(level, state);
+//            }
+//        }
+//
+//        state.nextSpawnTick =
+//                level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS;
+//    }
 
     private static void discardActiveAggressiveRift(
             ServerLevel level,
@@ -1116,5 +1102,128 @@ public final class RiftManager {
         BlockState floor = level.getBlockState(floorPos);
         return floor.isFaceSturdy(level, floorPos, Direction.UP)
                 && level.getFluidState(floorPos).isEmpty();
+    }
+    public static void resetAggressiveRiftTimerForPlayer(
+            ServerLevel level,
+            ServerPlayer player,
+            UUID resolvingRiftId
+    ) {
+        AggressiveRiftState state = aggressiveRiftStates.computeIfAbsent(
+                player.getUUID(),
+                uuid -> new AggressiveRiftState(
+                        level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS
+                )
+        );
+
+        // Убираем ссылку только на тот портал, который сейчас завершается.
+        // Другой активный портал этого игрока не трогаем.
+        if (resolvingRiftId != null
+                && resolvingRiftId.equals(state.activeRiftId)) {
+            state.activeRiftId = null;
+        }
+
+        state.nextSpawnTick =
+                level.getGameTime() + AGGRESSIVE_RIFT_INTERVAL_TICKS;
+    }
+    public static void resetAggressiveRiftTimersInRadius(
+            ServerLevel level,
+            Vec3 center,
+            double radius,
+            UUID resolvingRiftId
+    ) {
+        double radiusSquared = radius * radius;
+
+        for (ServerPlayer player : level.players()) {
+            Vec3 playerPosition = player.position();
+
+            if (ModList.get().isLoaded("aeroportals")) {
+                playerPosition =
+                        AeroPortalsRiftIntegration.getEntityWorldPosition(player);
+            }
+
+            if (playerPosition.distanceToSqr(center) > radiusSquared) {
+                continue;
+            }
+
+            resetAggressiveRiftTimerForPlayer(
+                    level,
+                    player,
+                    resolvingRiftId
+            );
+        }
+    }
+
+    public static boolean cancelNearestAggressiveRift(
+            ServerPlayer player
+    ) {
+        ServerLevel level = player.serverLevel();
+
+        if (!level.dimension().equals(Level.OVERWORLD)) {
+            return false;
+        }
+
+        Vec3 playerPosition = player.position();
+
+        if (ModList.get().isLoaded("aeroportals")) {
+            playerPosition =
+                    AeroPortalsRiftIntegration.getEntityWorldPosition(player);
+        }
+
+        double radius = AggressiveRiftEntity.EFFECT_RADIUS;
+        double radiusSquared = radius * radius;
+
+        AABB searchBounds = new AABB(
+                playerPosition.x - radius,
+                playerPosition.y - radius,
+                playerPosition.z - radius,
+                playerPosition.x + radius,
+                playerPosition.y + radius,
+                playerPosition.z + radius
+        );
+
+        AggressiveRiftEntity nearestRift = null;
+        double nearestDistance = Double.MAX_VALUE;
+
+        for (AggressiveRiftEntity rift : level.getEntitiesOfClass(
+                AggressiveRiftEntity.class,
+                searchBounds
+        )) {
+            if (!rift.isAlive()) {
+                continue;
+            }
+
+            double distance = rift.position()
+                    .distanceToSqr(playerPosition);
+
+            if (distance > radiusSquared || distance >= nearestDistance) {
+                continue;
+            }
+
+            nearestRift = rift;
+            nearestDistance = distance;
+        }
+
+        if (nearestRift == null) {
+            return false;
+        }
+
+        // Сначала сбрасываем таймеры всем рядом находящимся игрокам.
+        resetAggressiveRiftTimersInRadius(
+                level,
+                nearestRift.position(),
+                radius,
+                nearestRift.getUUID()
+        );
+
+        LOGGER.info(
+                "Aggressive rift {} was cancelled by player {}.",
+                nearestRift.getUUID(),
+                player.getName().getString()
+        );
+
+        // discard() вызовет remove(), который уберёт маркеры AeroPortals.
+        nearestRift.discard();
+
+        return true;
     }
 }
