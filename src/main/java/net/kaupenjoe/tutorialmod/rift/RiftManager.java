@@ -27,6 +27,8 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.kaupenjoe.tutorialmod.distortion.DistortionManager;
 import net.kaupenjoe.tutorialmod.rift.RiftProtection;
+import net.neoforged.fml.ModList;
+import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
 
 import java.util.HashSet;
 import java.util.UUID;
@@ -504,6 +506,12 @@ public final class RiftManager {
             double dz = player.getZ() - riftPosition.z;
 
             if (dx * dx + dy * dy + dz * dz > radius * radius) {
+                continue;
+            }
+
+            // Игроки на кораблях перемещаются вместе со своим SubLevel.
+            if (ModList.get().isLoaded("aeroportals")
+                    && AeroPortalsRiftIntegration.isEntityOnAirship(player)) {
                 continue;
             }
 

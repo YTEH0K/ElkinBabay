@@ -19,6 +19,21 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
+import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
+import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
+import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
+import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
+
+import net.kaupenjoe.tutorialmod.entity.custom.AggressiveRiftEntity;
+import net.kaupenjoe.tutorialmod.rift.RiftProtection;
+
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+
+import org.joml.Vector3d;
+
+import java.util.UUID;
 
 import java.util.Collection;
 import java.util.List;
@@ -59,44 +74,78 @@ public final class AeroPortalsRiftIntegration {
                 AABB searchBounds = new AABB(hitPos)
                         .inflate(2.0D, 4.0D, 2.0D);
 
-                RiftEntity rift = sourceLevel.getEntitiesOfClass(
+                RiftEntity normalRift = sourceLevel.getEntitiesOfClass(
                         RiftEntity.class,
                         searchBounds,
                         Entity::isAlive
                 ).stream().findFirst().orElse(null);
 
-                if (rift == null
-                        || rift.getDestinationDimension() == null
-                        || rift.getDestinationPos() == null) {
+                AggressiveRiftEntity aggressiveRift = null;
 
-                    LOGGER.warn(
-                            "AeroPortals found a rift marker at {}, "
-                                    + "but its RiftEntity or destination "
-                                    + "could not be found.",
-                            hitPos
+                ServerLevel destinationLevel;
+                BlockPos destination;
+
+                if (normalRift != null) {
+                    if (normalRift.getDestinationDimension() == null
+                            || normalRift.getDestinationPos() == null) {
+                        return null;
+                    }
+
+                    destinationLevel = sourceLevel.getServer().getLevel(
+                            normalRift.getDestinationDimension()
                     );
 
-                    return null;
-                }
+                    if (destinationLevel == null) {
+                        LOGGER.warn("Rift destination dimension is unavailable.");
+                        return null;
+                    }
 
-                ServerLevel destinationLevel =
-                        sourceLevel.getServer().getLevel(
-                                rift.getDestinationDimension()
+                    destination = normalRift.getDestinationPos();
+
+                    normalRift.onPortalEntry();
+                } else {
+                    if (!sourceLevel.dimension().equals(Level.OVERWORLD)) {
+                        return null;
+                    }
+
+                    aggressiveRift = sourceLevel.getEntitiesOfClass(
+                            AggressiveRiftEntity.class,
+                            searchBounds,
+                            Entity::isAlive
+                    ).stream().findFirst().orElse(null);
+
+                    if (aggressiveRift == null
+                            || !aggressiveRift.canReceiveAirships()) {
+                        return null;
+                    }
+
+                    destinationLevel = sourceLevel;
+                    destination = aggressiveRift.getPreparedDestination();
+
+                    UUID shipId = sub.getUniqueId();
+
+                    // Печать защищает всю постройку, а не только пассажира.
+                    if (aggressiveRift.isAirshipProtected(shipId)) {
+                        return null;
+                    }
+
+                    if (hasProtectedPassenger(sourceLevel, sub)) {
+                        aggressiveRift.protectAirship(shipId);
+
+                        LOGGER.info(
+                                "Aggressive rift spared airship {} because it has a protected passenger.",
+                                shipId
                         );
 
-                if (destinationLevel == null) {
-                    LOGGER.warn(
-                            "Rift destination dimension {} is unavailable.",
-                            rift.getDestinationDimension().location()
-                    );
+                        return null;
+                    }
 
-                    return null;
+                    // Не допускаем повторную обработку одного корабля.
+                    if (!aggressiveRift.tryStartAirshipTransfer(shipId)) {
+                        return null;
+                    }
                 }
 
-                BlockPos destination = rift.getDestinationPos();
-
-                // AeroPortals expects the ship's world position,
-                // not a block position on which to place the ship.
                 AABB shipBounds = AabbUtil.worldAabb(sub);
 
                 double shipOriginY =
@@ -114,9 +163,16 @@ public final class AeroPortalsRiftIntegration {
                         destination.getZ() + 0.5D
                 );
 
-                // Reset the rift's closing timer when a ship
-                // attempts to enter it.
-                rift.onPortalEntry();
+                PortalDestination portalDestination = PortalDestination.of(
+                        destinationLevel,
+                        shipDestination,
+                        true,
+                        PORTAL_ID.toString()
+                );
+
+                if (aggressiveRift != null) {
+                    aggressiveRift.onAirshipTransferStarted();
+                }
 
                 LOGGER.info(
                         "AeroPortals rift detected: {} -> {} at {}",
@@ -125,19 +181,180 @@ public final class AeroPortalsRiftIntegration {
                         destination
                 );
 
-                return PortalDestination.of(
-                        destinationLevel,
-                        shipDestination,
-                        true,
-                        PORTAL_ID.toString()
-                );
+                return portalDestination;
             }
         });
 
         LOGGER.info("Registered AeroPortals support for tutorialmod:rifts.");
     }
 
+    public static int pullNearbyAirships(
+            ServerLevel level,
+            Vec3 riftCenter,
+            double radius,
+            double progress,
+            AggressiveRiftEntity rift
+    ) {
+        ServerSubLevelContainer container =
+                SubLevelContainer.getContainer(level);
+
+        if (container == null) {
+            return 0;
+        }
+
+        SubLevelPhysicsSystem physicsSystem =
+                container.physicsSystem();
+
+        double desiredPullSpeed =
+                1.0D + 17.0D * progress * progress;
+
+        int affectedAirships = 0;
+
+        for (ServerSubLevel sub : container.getAllSubLevels()) {
+            if (sub.isRemoved()) {
+                continue;
+            }
+
+            UUID shipId = sub.getUniqueId();
+
+            if (rift.isAirshipProtected(shipId)) {
+                continue;
+            }
+
+            AABB bounds = AabbUtil.worldAabb(sub);
+            Vec3 shipCenter = bounds.getCenter();
+
+            Vec3 toRift = riftCenter.subtract(shipCenter);
+            double distance = toRift.length();
+
+            double halfX = bounds.getXsize() * 0.5D;
+            double halfY = bounds.getYsize() * 0.5D;
+            double halfZ = bounds.getZsize() * 0.5D;
+
+            double halfDiagonal = Math.sqrt(
+                    halfX * halfX
+                            + halfY * halfY
+                            + halfZ * halfZ
+            );
+
+            // Учитываем размеры всей постройки, а не только её центр.
+            if (distance - halfDiagonal > radius) {
+                continue;
+            }
+
+            // Если на корабле есть защищённый игрок,
+            // не притягиваем и не телепортируем его.
+            if (hasProtectedPassenger(level, sub)) {
+                rift.protectAirship(shipId);
+                continue;
+            }
+
+            affectedAirships++;
+
+            if (distance < 0.001D) {
+                continue;
+            }
+
+            Vector3d direction = new Vector3d(
+                    toRift.x / distance,
+                    toRift.y / distance,
+                    toRift.z / distance
+            );
+
+            RigidBodyHandle handle =
+                    physicsSystem.getPhysicsHandle(sub);
+
+            if (!handle.isValid()) {
+                continue;
+            }
+
+            Vector3d currentVelocity =
+                    handle.getLinearVelocity(new Vector3d());
+
+            double currentTowardSpeed =
+                    currentVelocity.dot(direction);
+
+            if (currentTowardSpeed < desiredPullSpeed) {
+                double velocityDifference =
+                        desiredPullSpeed - currentTowardSpeed;
+
+                // Ограничиваем изменение скорости за один тик.
+                double appliedSpeed = Math.min(
+                        velocityDifference,
+                        0.75D
+                );
+
+                handle.addLinearAndAngularVelocity(
+                        direction.mul(appliedSpeed),
+                        new Vector3d()
+                );
+
+                physicsSystem.getPipeline().wakeUp(sub);
+            }
+        }
+
+        return affectedAirships;
+    }
+
+    private static boolean hasProtectedPassenger(
+            ServerLevel level,
+            ServerSubLevel sub
+    ) {
+        for (ServerPlayer player : level.players()) {
+            if (Sable.HELPER.getTrackingOrVehicleSubLevel(player) == sub
+                    && RiftProtection.isProtected(player)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static void ensureAggressivePortalMarkers(
+            ServerLevel level,
+            BlockPos base
+    ) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = 0; dy < 4; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    BlockPos markerPos = base.offset(dx, dy, dz);
+
+                    if (level.getBlockState(markerPos).isAir()) {
+                        level.setBlock(
+                                markerPos,
+                                ModBlocks.RIFT_MARKER.get()
+                                        .defaultBlockState(),
+                                3
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    public static void removeAggressivePortalMarkers(
+            ServerLevel level,
+            BlockPos base
+    ) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = 0; dy < 4; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    BlockPos markerPos = base.offset(dx, dy, dz);
+
+                    if (level.getBlockState(markerPos)
+                            .is(ModBlocks.RIFT_MARKER.get())) {
+                        level.setBlock(
+                                markerPos,
+                                Blocks.AIR.defaultBlockState(),
+                                3
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     public static boolean isEntityOnAirship(Entity entity) {
-        return Sable.HELPER.getTrackingSubLevel(entity) != null;
+        return Sable.HELPER.getTrackingOrVehicleSubLevel(entity) != null;
     }
 }

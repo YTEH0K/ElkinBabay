@@ -18,17 +18,31 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 import net.minecraft.core.BlockPos;
+import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
+import net.neoforged.fml.ModList;
+
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 public class AggressiveRiftEntity extends Entity {
 
     private static final int DURATION_TICKS = 20 * 5;
     private static final double EFFECT_RADIUS = 100.0D;
 
+    private boolean portalMarkersPlaced = false;
+    private boolean airshipTransferStarted = false;
+
+    private final Set<UUID> protectedAirshipIds = new HashSet<>();
+    private final Set<UUID> airshipTransferIds = new HashSet<>();
+
     private static final int POST_TELEPORT_VISUAL_TICKS = 20;
 
     private int postTeleportTicks = -1;
 
-    private boolean destinationPreparationAttempted = false;
     private BlockPos preparedDestination = null;
 
     private static final DustParticleOptions RED_TETHER =
@@ -57,6 +71,37 @@ public class AggressiveRiftEntity extends Entity {
         this.setNoGravity(true);
     }
 
+    public BlockPos getPreparedDestination() {
+        return preparedDestination;
+    }
+
+    public boolean canReceiveAirships() {
+        return this.isAlive()
+                && remainingTicks <= 0
+                && preparedDestination != null
+                && postTeleportTicks < 0;
+    }
+
+    public void protectAirship(UUID shipId) {
+        protectedAirshipIds.add(shipId);
+    }
+
+    public boolean isAirshipProtected(UUID shipId) {
+        return protectedAirshipIds.contains(shipId);
+    }
+
+    public boolean tryStartAirshipTransfer(UUID shipId) {
+        if (protectedAirshipIds.contains(shipId)) {
+            return false;
+        }
+
+        return airshipTransferIds.add(shipId);
+    }
+
+    public void onAirshipTransferStarted() {
+        airshipTransferStarted = true;
+    }
+
     @Override
     protected void defineSynchedData(
             SynchedEntityData.Builder builder
@@ -70,6 +115,24 @@ public class AggressiveRiftEntity extends Entity {
                     0,
                     Math.min(DURATION_TICKS, tag.getInt("RemainingTicks"))
             );
+        }
+
+        this.portalMarkersPlaced =
+                tag.getBoolean("PortalMarkersPlaced");
+
+        this.airshipTransferStarted =
+                tag.getBoolean("AirshipTransferStarted");
+
+        this.protectedAirshipIds.clear();
+
+        ListTag protectedIds = tag.getList(
+                "ProtectedAirships",
+                Tag.TAG_COMPOUND
+        );
+
+        for (int i = 0; i < protectedIds.size(); i++) {
+            CompoundTag entry = protectedIds.getCompound(i);
+            this.protectedAirshipIds.add(entry.getUUID("Id"));
         }
 
         this.teleportRetryTicks = Math.max(
@@ -148,7 +211,8 @@ public class AggressiveRiftEntity extends Entity {
         int elapsedTicks = DURATION_TICKS - remainingTicks;
 
         // Продолжаем притягивать игроков даже после окончания таймера.
-        applyPullAndTethers(serverLevel, elapsedTicks);
+        int nearbyAirships =
+                applyPullAndTethers(serverLevel, elapsedTicks);
 
         // Звуки обратного отсчёта.
         if (remainingTicks > 0 && elapsedTicks % 20 == 0) {
@@ -229,14 +293,26 @@ public class AggressiveRiftEntity extends Entity {
 
 // За секунду до телепортации заранее выбираем место назначения
 // и загружаем область вокруг него.
-        if (remainingTicks <= 20 && !destinationPreparationAttempted) {
-            destinationPreparationAttempted = true;
-
+        if (remainingTicks <= 20 && preparedDestination == null) {
             preparedDestination =
                     RiftManager.prepareAggressiveDestination(
                             serverLevel,
                             50000
                     );
+        }
+
+        // После окончания отсчёта открываем проход для кораблей.
+        if (remainingTicks <= 0
+                && preparedDestination != null
+                && !portalMarkersPlaced
+                && ModList.get().isLoaded("aeroportals")) {
+
+            AeroPortalsRiftIntegration.ensureAggressivePortalMarkers(
+                    serverLevel,
+                    this.blockPosition()
+            );
+
+            portalMarkersPlaced = true;
         }
 
 // После окончания пяти секунд начинаем телепортацию.
@@ -258,8 +334,11 @@ public class AggressiveRiftEntity extends Entity {
                             preparedDestination
                     );
 
-            if (result.isResolved()) {
-                // Не удаляем портал мгновенно.
+            if (nearbyAirships == 0
+                    && (result.isResolved()
+                    || airshipTransferStarted
+                    || !protectedAirshipIds.isEmpty())) {
+
                 postTeleportTicks = POST_TELEPORT_VISUAL_TICKS;
             }
         }
@@ -345,6 +424,7 @@ public class AggressiveRiftEntity extends Entity {
                     player.connection.send(
                             new ClientboundSetEntityMotionPacket(player)
                     );
+
                 }
             }
         }
@@ -395,5 +475,23 @@ public class AggressiveRiftEntity extends Entity {
     @Override
     public boolean isAttackable() {
         return false;
+    }
+
+    @Override
+    public void remove(Entity.RemovalReason reason) {
+        if ((reason == Entity.RemovalReason.DISCARDED
+                || reason == Entity.RemovalReason.KILLED)
+                && !this.level().isClientSide
+                && this.level() instanceof ServerLevel serverLevel
+                && portalMarkersPlaced
+                && ModList.get().isLoaded("aeroportals")) {
+
+            AeroPortalsRiftIntegration.removeAggressivePortalMarkers(
+                    serverLevel,
+                    this.blockPosition()
+            );
+        }
+
+        super.remove(reason);
     }
 }
