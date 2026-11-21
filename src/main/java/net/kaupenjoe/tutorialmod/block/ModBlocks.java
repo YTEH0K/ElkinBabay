@@ -1,7 +1,6 @@
 package net.kaupenjoe.tutorialmod.block;
 
 import net.kaupenjoe.tutorialmod.TutorialMod;
-import net.kaupenjoe.tutorialmod.block.custom.MagicBlock;
 import net.kaupenjoe.tutorialmod.block.custom.RiftBlock;
 import net.kaupenjoe.tutorialmod.item.ModItems;
 import net.minecraft.util.valueproviders.UniformInt;
