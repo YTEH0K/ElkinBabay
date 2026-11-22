@@ -2,6 +2,7 @@
 package net.kaupenjoe.tutorialmod.entity.custom;
 
 import net.kaupenjoe.tutorialmod.rift.RiftManager;
+import net.kaupenjoe.tutorialmod.rift.RiftLifetimeSavedData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.Registries;
@@ -20,26 +21,27 @@ import net.kaupenjoe.tutorialmod.block.ModBlocks;
 import net.minecraft.world.level.block.Blocks;
 import net.neoforged.fml.ModList;
 import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
+
 import java.util.Set;
 
 public class RiftEntity extends Entity {
 
-    private static final int INITIAL_LIFETIME_TICKS = 5 * 60 * 20;
-    private static final int ENTRY_LIFETIME_TICKS = 10 * 20;
-
-    private static final String REMAINING_LIFETIME_TAG = "RiftRemainingTicks";
-
     private ResourceKey<Level> destinationDimension;
     private BlockPos destinationPos;
-    private int remainingLifetimeTicks = INITIAL_LIFETIME_TICKS;
 
-    public RiftEntity(EntityType<? extends RiftEntity> entityType, Level level) {
+    public RiftEntity(
+            EntityType<? extends RiftEntity> entityType,
+            Level level
+    ) {
         super(entityType, level);
         this.noPhysics = true;
         this.setNoGravity(true);
     }
 
-    public void setDestination(ResourceKey<Level> dimension, BlockPos pos) {
+    public void setDestination(
+            ResourceKey<Level> dimension,
+            BlockPos pos
+    ) {
         this.destinationDimension = dimension;
         this.destinationPos = pos.immutable();
     }
@@ -53,13 +55,22 @@ public class RiftEntity extends Entity {
     }
 
     public void onPortalEntry() {
-        this.remainingLifetimeTicks = ENTRY_LIFETIME_TICKS;
+        if (!(this.level() instanceof ServerLevel level)) {
+            return;
+        }
+
+        RiftLifetimeSavedData.get(level).resetIdleTimer(
+                this.getUUID(),
+                this.blockPosition(),
+                level.getGameTime()
+        );
     }
 
     public void ensurePortalMarkers(ServerLevel level) {
         if (!ModList.get().isLoaded("aeroportals")) {
             return;
         }
+
         BlockPos base = this.blockPosition();
 
         for (int dx = -1; dx <= 1; dx++) {
@@ -67,12 +78,10 @@ public class RiftEntity extends Entity {
                 for (int dz = -1; dz <= 1; dz++) {
                     BlockPos markerPos = base.offset(dx, dy, dz);
 
-                    // Never replace terrain or other blocks.
                     if (level.getBlockState(markerPos).isAir()) {
                         level.setBlock(
                                 markerPos,
-                                ModBlocks.RIFT_MARKER.get()
-                                        .defaultBlockState(),
+                                ModBlocks.RIFT_MARKER.get().defaultBlockState(),
                                 3
                         );
                     }
@@ -89,9 +98,7 @@ public class RiftEntity extends Entity {
                 for (int dz = -1; dz <= 1; dz++) {
                     BlockPos markerPos = base.offset(dx, dy, dz);
 
-                    if (level.getBlockState(markerPos)
-                            .is(ModBlocks.RIFT_MARKER.get())) {
-
+                    if (level.getBlockState(markerPos).is(ModBlocks.RIFT_MARKER.get())) {
                         level.setBlock(
                                 markerPos,
                                 Blocks.AIR.defaultBlockState(),
@@ -122,18 +129,6 @@ public class RiftEntity extends Entity {
                 tag.getInt("DestinationY"),
                 tag.getInt("DestinationZ")
         );
-
-        if (tag.contains(REMAINING_LIFETIME_TAG)) {
-            this.remainingLifetimeTicks = Math.max(
-                    1,
-                    Math.min(
-                            INITIAL_LIFETIME_TICKS,
-                            tag.getInt(REMAINING_LIFETIME_TAG)
-                    )
-            );
-        } else {
-            this.remainingLifetimeTicks = INITIAL_LIFETIME_TICKS;
-        }
     }
 
     @Override
@@ -150,8 +145,6 @@ public class RiftEntity extends Entity {
             tag.putInt("DestinationY", this.destinationPos.getY());
             tag.putInt("DestinationZ", this.destinationPos.getZ());
         }
-
-        tag.putInt(REMAINING_LIFETIME_TAG, this.remainingLifetimeTicks);
     }
 
     @Override
@@ -167,99 +160,98 @@ public class RiftEntity extends Entity {
             return;
         }
 
+        RiftLifetimeSavedData lifetimeData =
+                RiftLifetimeSavedData.get(sourceLevel);
 
+        // Регистрируем старые порталы, если они ещё не были записаны
+        // в SavedData, например после обновления мода.
+        lifetimeData.registerIfMissing(
+                this.getUUID(),
+                this.blockPosition(),
+                sourceLevel.getGameTime()
+        );
 
-
-        boolean entityEntered = false;
-
-        // Try to teleport entities before checking whether the lifetime expired.
-        if (this.destinationDimension != null && this.destinationPos != null) {
-            ServerLevel targetLevel =
-                    sourceLevel.getServer().getLevel(this.destinationDimension);
-
-            if (targetLevel != null) {
-                AABB portalBounds = this.getBoundingBox().inflate(0.05D);
-
-                for (Entity entity : sourceLevel.getEntities(
-                        this,
-                        portalBounds,
-                        candidate -> candidate.isAlive()
-                                && !candidate.isSpectator()
-                                && !(candidate instanceof RiftEntity)
-                )) {
-                    if (entity instanceof ServerPlayer
-                            && ModList.get().isLoaded("aeroportals")
-                            && AeroPortalsRiftIntegration.isEntityOnAirship(entity)) {
-                        continue;
-                    }
-                    boolean teleported = entity.teleportTo(
-                            targetLevel,
-                            this.destinationPos.getX() + 0.5D,
-                            this.destinationPos.getY(),
-                            this.destinationPos.getZ() + 0.5D,
-                            Set.of(),
-                            entity.getYRot(),
-                            entity.getXRot()
-                    );
-
-                    if (!teleported) {
-                        continue;
-                    }
-
-                    entityEntered = true;
-                    entity.setDeltaMovement(Vec3.ZERO);
-
-                    if (entity instanceof ServerPlayer player) {
-                        String messageKey =
-                                this.destinationDimension.equals(
-                                        RiftManager.PRISON_DIMENSION
-                                )
-                                        ? "message.tutorialmod.rift.to_prison"
-                                        : "message.tutorialmod.rift.to_overworld";
-
-                        player.sendSystemMessage(
-                                net.minecraft.network.chat.Component
-                                        .translatable(messageKey)
-                        );
-                    }
-                }
-            }
+        // Если таймер истёк, удаляем портал при загрузке его чанка.
+        if (lifetimeData.isExpired(this.getUUID())) {
+            this.discard();
+            return;
         }
 
-        if (entityEntered) {
-            // Any successful entry restarts the 10-second closing timer.
-            this.remainingLifetimeTicks = ENTRY_LIFETIME_TICKS;
-        } else {
-            // No successful entry: continue the current timer.
-            this.remainingLifetimeTicks--;
+        if (this.destinationDimension == null || this.destinationPos == null) {
+            return;
+        }
 
-            if (this.remainingLifetimeTicks <= 0) {
-                this.discard();
+        ServerLevel targetLevel =
+                sourceLevel.getServer().getLevel(this.destinationDimension);
+
+        if (targetLevel == null) {
+            return;
+        }
+
+        AABB portalBounds = this.getBoundingBox().inflate(0.05D);
+
+        for (Entity entity : sourceLevel.getEntities(
+                this,
+                portalBounds,
+                candidate -> candidate.isAlive()
+                        && !candidate.isSpectator()
+                        && !(candidate instanceof RiftEntity)
+        )) {
+            if (entity instanceof ServerPlayer
+                    && ModList.get().isLoaded("aeroportals")
+                    && AeroPortalsRiftIntegration.isEntityOnAirship(entity)) {
+                continue;
+            }
+
+            boolean teleported = entity.teleportTo(
+                    targetLevel,
+                    this.destinationPos.getX() + 0.5D,
+                    this.destinationPos.getY(),
+                    this.destinationPos.getZ() + 0.5D,
+                    Set.of(),
+                    entity.getYRot(),
+                    entity.getXRot()
+            );
+
+            if (!teleported) {
+                continue;
+            }
+
+            entity.setDeltaMovement(Vec3.ZERO);
+
+            if (entity instanceof ServerPlayer player) {
+                onPortalEntry();
+
+                String messageKey =
+                        this.destinationDimension.equals(
+                                RiftManager.PRISON_DIMENSION
+                        )
+                                ? "message.tutorialmod.rift.to_prison"
+                                : "message.tutorialmod.rift.to_overworld";
+
+                player.sendSystemMessage(
+                        net.minecraft.network.chat.Component.translatable(messageKey)
+                );
             }
         }
     }
 
-
     private void spawnAmbientParticles() {
-        // Создаём частицы раз в два игровых тика.
         if (this.tickCount % 2 != 0) {
             return;
         }
 
         double centerY = this.getY() + this.getBbHeight() * 0.5D;
 
-        // Радиус окружающего энергетического поля.
         double baseRadius =
                 Math.max(this.getBbWidth(), this.getBbHeight()) * 0.72D;
 
-        // Две частицы за один вызов, на противоположных сторонах.
         for (int i = 0; i < 2; i++) {
             double angle =
                     this.tickCount * 0.075D
                             + i * Math.PI
                             + this.random.nextDouble() * 0.7D;
 
-            // Распределяем частицы по всей высоте и глубине.
             double latitude =
                     (this.random.nextDouble() - 0.5D) * Math.PI * 0.8D;
 
@@ -277,7 +269,6 @@ public class RiftEntity extends Entity {
             double z = this.getZ()
                     + Math.sin(angle) * radius * horizontal;
 
-            // Движение по касательной создаёт эффект вращения.
             double speed = 0.025D + this.random.nextDouble() * 0.015D;
 
             double velocityX = -Math.sin(angle) * speed;
@@ -289,21 +280,18 @@ public class RiftEntity extends Entity {
             int particleType = this.random.nextInt(10);
 
             if (particleType == 0) {
-                // Редкие яркие искры.
                 this.level().addParticle(
                         ParticleTypes.END_ROD,
                         x, y, z,
                         velocityX, velocityY, velocityZ
                 );
             } else if (particleType <= 3) {
-                // Фиолетовые магические частицы.
                 this.level().addParticle(
                         ParticleTypes.WITCH,
                         x, y, z,
                         velocityX, velocityY, velocityZ
                 );
             } else {
-                // Основная портальная энергия.
                 this.level().addParticle(
                         ParticleTypes.PORTAL,
                         x, y, z,
@@ -313,7 +301,6 @@ public class RiftEntity extends Entity {
         }
     }
 
-
     @Override
     public void remove(Entity.RemovalReason reason) {
         if ((reason == Entity.RemovalReason.DISCARDED
@@ -322,6 +309,8 @@ public class RiftEntity extends Entity {
                 && this.level() instanceof ServerLevel serverLevel) {
 
             removePortalMarkers(serverLevel);
+
+            RiftLifetimeSavedData.get(serverLevel).remove(this.getUUID());
         }
 
         super.remove(reason);

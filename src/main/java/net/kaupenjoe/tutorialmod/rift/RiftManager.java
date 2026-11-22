@@ -29,6 +29,7 @@ import net.kaupenjoe.tutorialmod.distortion.DistortionManager;
 import net.kaupenjoe.tutorialmod.rift.RiftProtection;
 import net.neoforged.fml.ModList;
 import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
+import net.kaupenjoe.tutorialmod.rift.RiftLifetimeSavedData;
 
 import java.util.HashSet;
 import java.util.UUID;
@@ -85,16 +86,24 @@ public final class RiftManager {
             Registries.DIMENSION,
             ResourceLocation.fromNamespaceAndPath(TutorialMod.MOD_ID, "prison")
     );
+    private static final long SPAWN_INTERVAL_TICKS =
+            20L * 60L * 3L;
 
-    private static final long SPAWN_INTERVAL_TICKS = 20L * 20L;
     private static final int SPAWN_CLUSTERS = 4;
     private static final int SPAWN_ATTEMPTS_PER_CLUSTER = 24;
-    private static final int PLAYER_MIN_DISTANCE = 24;
-    private static final int PLAYER_MAX_DISTANCE = 72;
+
+    private static final int MAX_ACTIVE_RIFTS_PER_DIMENSION = 4;
+
+    private static final int PLAYER_MIN_DISTANCE = 150;
+    private static final int PLAYER_MAX_DISTANCE = 200;
+
     private static final int PRISON_MIN_DISTANCE = 560;
     private static final int NEARBY_RIFT_RADIUS = 16;
+
     private static final long DIAGNOSTIC_LOG_INTERVAL_TICKS = 20L * 10L;
-    private static final long AGGRESSIVE_RIFT_INTERVAL_TICKS = 20L * 60L;
+
+    private static final long AGGRESSIVE_RIFT_INTERVAL_TICKS =
+            20L * 60L * 30L;
 
     private static final double AGGRESSIVE_RIFT_SPAWN_RADIUS = 15.0D;
     private static final double AGGRESSIVE_RIFT_TELEPORT_RADIUS = 100.0D;
@@ -134,6 +143,10 @@ public final class RiftManager {
         if (!isPrison && !dimension.equals(Level.OVERWORLD)) {
             return;
         }
+
+        // Обновляем таймеры даже тогда, когда в измерении нет игроков.
+        // Сам SavedData не загружает чанки.
+        RiftLifetimeSavedData.get(level).tick(level);
 
         List<ServerPlayer> players = level.players();
 
@@ -175,6 +188,29 @@ public final class RiftManager {
             ServerPlayer player,
             boolean isPrison
     ) {
+
+        RiftLifetimeSavedData lifetimeData =
+                RiftLifetimeSavedData.get(level);
+
+    // Подхватываем порталы, созданные до установки этой версии мода.
+        for (Entity entity : level.getAllEntities()) {
+            if (entity instanceof RiftEntity existingRift
+                    && existingRift.isAlive()) {
+
+                lifetimeData.registerIfMissing(
+                        existingRift.getUUID(),
+                        existingRift.blockPosition(),
+                        level.getGameTime()
+                );
+            }
+        }
+
+    // Не создаём больше четырёх обычных порталов в измерении.
+        if (lifetimeData.getActiveRiftCount()
+                >= MAX_ACTIVE_RIFTS_PER_DIMENSION) {
+            return false;
+        }
+
         int minDistance = PLAYER_MIN_DISTANCE;
         int maxDistance = PLAYER_MAX_DISTANCE;
 
@@ -233,6 +269,18 @@ public final class RiftManager {
 
                 if (pos == null) {
                     noSurface++;
+                    continue;
+                }
+
+                double dx = pos.getX() + 0.5D - player.getX();
+                double dz = pos.getZ() + 0.5D - player.getZ();
+
+                double distanceSquared = dx * dx + dz * dz;
+
+                if (distanceSquared
+                        < PLAYER_MIN_DISTANCE * PLAYER_MIN_DISTANCE
+                        || distanceSquared
+                        > PLAYER_MAX_DISTANCE * PLAYER_MAX_DISTANCE) {
                     continue;
                 }
 
@@ -316,6 +364,12 @@ public final class RiftManager {
                 );
 
                 if (level.addFreshEntity(rift)) {
+                    lifetimeData.registerIfMissing(
+                            rift.getUUID(),
+                            rift.blockPosition(),
+                            level.getGameTime()
+                    );
+
                     rift.ensurePortalMarkers(level);
                     return true;
                 }
