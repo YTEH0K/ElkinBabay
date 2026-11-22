@@ -6,5 +6,12 @@
   "entity.tutorialmod.rift": "Разлом",
   "item.tutorialmod.rift_seal": "Печать разлома",
   "tooltip.tutorialmod.rift_seal": "Защищает от агрессивного разлома на 8 секунд.",
-  "message.tutorialmod.rift.seal_activated": "Печать разрывает связь с агрессивным разломом."
+  "message.tutorialmod.rift.seal_activated": "Печать разрывает связь с агрессивным разломом.",
+  "item.tutorialmod.rift_compass": "Компас разломов",
+  "tooltip.tutorialmod.rift_compass.description": "Указывает на ближайший обычный разлом.",
+  "tooltip.tutorialmod.rift_compass.no_target": "Обычных разломов не обнаружено.",
+  "tooltip.tutorialmod.rift_compass.target": "Измерение: %s",
+  "tooltip.tutorialmod.rift_compass.coordinates": "Координаты: %s, %s, %s",
+  "tooltip.tutorialmod.rift_compass.overworld": "Верхний мир",
+  "tooltip.tutorialmod.rift_compass.prison": "Тюрьма"
 }

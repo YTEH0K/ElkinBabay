@@ -3,6 +3,7 @@ package net.kaupenjoe.tutorialmod.compat.aeroportals;
 import com.breakinblocks.aeroportals.api.AeroPortalType;
 import com.breakinblocks.aeroportals.api.AeroPortalsApi;
 import com.breakinblocks.aeroportals.api.PortalDestination;
+import com.breakinblocks.aeroportals.api.SubLevelTransferEvent;
 import com.breakinblocks.aeroportals.util.AabbUtil;
 import com.mojang.logging.LogUtils;
 import dev.ryanhcode.sable.Sable;
@@ -14,7 +15,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -25,18 +25,19 @@ import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 import net.kaupenjoe.tutorialmod.rift.RiftManager;
 import net.kaupenjoe.tutorialmod.entity.custom.AggressiveRiftEntity;
-import net.kaupenjoe.tutorialmod.rift.RiftProtection;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 import org.joml.Vector3d;
 
-import java.util.UUID;
-
-import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 public final class AeroPortalsRiftIntegration {
 
@@ -48,10 +49,17 @@ public final class AeroPortalsRiftIntegration {
                     "rift"
             );
 
+    private static final Map<UUID, PendingTransfer> PENDING_TRANSFERS = new HashMap<>();
+
+    private record PendingTransfer(AggressiveRiftEntity rift, List<ServerPlayer> playersToReset) {
+    }
+
     private AeroPortalsRiftIntegration() {
     }
 
     public static void register() {
+        NeoForge.EVENT_BUS.addListener(AeroPortalsRiftIntegration::onShipTransferred);
+        NeoForge.EVENT_BUS.addListener(AeroPortalsRiftIntegration::clearPendingTransfers);
         AeroPortalsApi.registerPortal(new AeroPortalType() {
 
             @Override
@@ -122,31 +130,8 @@ public final class AeroPortalsRiftIntegration {
                     destinationLevel = sourceLevel;
                     destination = aggressiveRift.getPreparedDestination();
 
-                    UUID shipId = sub.getUniqueId();
-
-
-                    // Не допускаем повторную обработку одного корабля.
-                    if (!aggressiveRift.tryStartAirshipTransfer(shipId)) {
+                    if (aggressiveRift.hasAirshipTransferred(sub.getUniqueId())) {
                         return null;
-                    }
-
-                    // Сбрасываем таймер всем игрокам около разлома.
-                    RiftManager.resetAggressiveRiftTimersInRadius(
-                            sourceLevel,
-                            aggressiveRift.position(),
-                            AggressiveRiftEntity.EFFECT_RADIUS,
-                            aggressiveRift.getUUID()
-                    );
-
-// Дополнительно сбрасываем таймеры пассажирам этого корабля.
-                    for (ServerPlayer player : sourceLevel.players()) {
-                        if (Sable.HELPER.getTrackingOrVehicleSubLevel(player) == sub) {
-                            RiftManager.resetAggressiveRiftTimerForPlayer(
-                                    sourceLevel,
-                                    player,
-                                    aggressiveRift.getUUID()
-                            );
-                        }
                     }
                 }
 
@@ -175,7 +160,7 @@ public final class AeroPortalsRiftIntegration {
                 );
 
                 if (aggressiveRift != null) {
-                    aggressiveRift.onAirshipTransferStarted();
+                    recordTransferAttempt(sourceLevel, sub, aggressiveRift);
                 }
 
                 LOGGER.info(
@@ -190,6 +175,42 @@ public final class AeroPortalsRiftIntegration {
         });
 
         LOGGER.info("Registered AeroPortals support for tutorialmod:rifts.");
+    }
+
+    private static void recordTransferAttempt(
+            ServerLevel level, ServerSubLevel sub, AggressiveRiftEntity rift
+    ) {
+        double radius = AggressiveRiftEntity.EFFECT_RADIUS;
+        List<ServerPlayer> playersToReset = level.players().stream()
+                .filter(player -> Sable.HELPER.getTrackingOrVehicleSubLevel(player) == sub
+                        || getEntityWorldPosition(player).distanceToSqr(rift.position()) <= radius * radius)
+                .toList();
+        PENDING_TRANSFERS.put(sub.getUniqueId(), new PendingTransfer(rift, playersToReset));
+    }
+
+    private static void onShipTransferred(SubLevelTransferEvent event) {
+        PendingTransfer transfer = PENDING_TRANSFERS.get(event.subUuid());
+        if (transfer == null
+                || transfer.rift().level() != event.srcLevel()
+                || event.dstLevel() != event.srcLevel()) {
+            return;
+        }
+
+        PENDING_TRANSFERS.remove(event.subUuid());
+        AggressiveRiftEntity rift = transfer.rift();
+        rift.onAirshipTransferred(event.subUuid());
+
+        for (ServerPlayer player : transfer.playersToReset()) {
+            RiftManager.resetAggressiveRiftTimerForPlayer(event.srcLevel(), player, rift.getUUID());
+        }
+
+        LOGGER.info("Aggressive rift moved ship {} to {}",
+                event.subUuid(), event.newSub().logicalPose().position());
+    }
+
+    private static void clearPendingTransfers(ServerTickEvent.Pre event) {
+        // AeroPortals emits the success event during dispatch, in the same server tick.
+        PENDING_TRANSFERS.clear();
     }
 
     public static int pullNearbyAirships(
@@ -221,7 +242,7 @@ public final class AeroPortalsRiftIntegration {
 
             UUID shipId = sub.getUniqueId();
 
-            if (rift.isAirshipTransferStarted(shipId)) {
+            if (rift.hasAirshipTransferred(shipId)) {
                 continue;
             }
 

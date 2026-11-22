@@ -34,10 +34,10 @@ public class AggressiveRiftEntity extends Entity {
     public static final double EFFECT_RADIUS = 100.0D;
 
     private boolean portalMarkersPlaced = false;
-    private boolean airshipTransferStarted = false;
+    private boolean airshipTransferred = false;
 
 
-    private final Set<UUID> airshipTransferIds = new HashSet<>();
+    private final Set<UUID> transferredAirshipIds = new HashSet<>();
 
     private static final int POST_TELEPORT_VISUAL_TICKS = 20;
 
@@ -84,16 +84,13 @@ public class AggressiveRiftEntity extends Entity {
 
 
 
-    public boolean tryStartAirshipTransfer(UUID shipId) {
-        return airshipTransferIds.add(shipId);
+    public boolean hasAirshipTransferred(UUID shipId) {
+        return transferredAirshipIds.contains(shipId);
     }
 
-    public boolean isAirshipTransferStarted(UUID shipId) {
-        return airshipTransferIds.contains(shipId);
-    }
-
-    public void onAirshipTransferStarted() {
-        airshipTransferStarted = true;
+    public void onAirshipTransferred(UUID shipId) {
+        transferredAirshipIds.add(shipId);
+        airshipTransferred = true;
     }
 
     @Override
@@ -112,7 +109,7 @@ public class AggressiveRiftEntity extends Entity {
         this.portalMarkersPlaced =
                 tag.getBoolean("PortalMarkersPlaced");
 
-        this.airshipTransferStarted =
+        this.airshipTransferred =
                 tag.getBoolean("AirshipTransferStarted");
 
         this.teleportRetryTicks = Math.max(
@@ -142,7 +139,7 @@ public class AggressiveRiftEntity extends Entity {
         tag.putInt("PostTeleportTicks", this.postTeleportTicks);
 
         tag.putBoolean("PortalMarkersPlaced", this.portalMarkersPlaced);
-        tag.putBoolean("AirshipTransferStarted", this.airshipTransferStarted);
+        tag.putBoolean("AirshipTransferStarted", this.airshipTransferred);
 
         tag.putBoolean(
                 "HasPreparedDestination",
@@ -306,7 +303,7 @@ public class AggressiveRiftEntity extends Entity {
                     );
 
             if (nearbyAirships == 0
-                    && (result.isResolved() || airshipTransferStarted)) {
+                    && (result.isResolved() || airshipTransferred)) {
 
                 postTeleportTicks = POST_TELEPORT_VISUAL_TICKS;
             }
@@ -459,9 +456,9 @@ public class AggressiveRiftEntity extends Entity {
     }
 
     @Override
-    public void remove(Entity.RemovalReason reason) {
-        if ((reason == Entity.RemovalReason.DISCARDED
-                || reason == Entity.RemovalReason.KILLED)
+    public void remove(RemovalReason reason) {
+        if ((reason == RemovalReason.DISCARDED
+                || reason == RemovalReason.KILLED)
                 && !this.level().isClientSide
                 && this.level() instanceof ServerLevel serverLevel
                 && portalMarkersPlaced

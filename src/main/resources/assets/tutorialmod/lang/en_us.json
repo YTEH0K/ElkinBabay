@@ -23,5 +23,12 @@
   "entity.tutorialmod.rift": "Rift",
   "item.tutorialmod.rift_seal": "Rift Seal",
   "tooltip.tutorialmod.rift_seal": "Protects you from an aggressive rift for 8 seconds.",
-  "message.tutorialmod.rift.seal_activated": "The seal breaks the aggressive rift connection to you."
+  "message.tutorialmod.rift.seal_activated": "The seal breaks the aggressive rift connection to you.",
+  "item.tutorialmod.rift_compass": "Rift Compass",
+  "tooltip.tutorialmod.rift_compass.description": "Points to the nearest ordinary rift.",
+  "tooltip.tutorialmod.rift_compass.no_target": "No ordinary rifts found.",
+  "tooltip.tutorialmod.rift_compass.target": "Dimension: %s",
+  "tooltip.tutorialmod.rift_compass.coordinates": "Coordinates: %s, %s, %s",
+  "tooltip.tutorialmod.rift_compass.overworld": "Overworld",
+  "tooltip.tutorialmod.rift_compass.prison": "Prison"
 }
