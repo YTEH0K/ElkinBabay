@@ -43,6 +43,7 @@ import net.minecraft.client.renderer.item.CompassItemPropertyFunction;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.kaupenjoe.tutorialmod.rift.client.RiftCompassClientState;
+import net.kaupenjoe.tutorialmod.distortion.DistortionEffectManager;
 
 @Mod(TutorialMod.MOD_ID)
 public class TutorialMod {
@@ -56,6 +57,7 @@ public class TutorialMod {
         NeoForge.EVENT_BUS.register(this);
         NeoForge.EVENT_BUS.register(new RiftManager());
         NeoForge.EVENT_BUS.register(new DistortionManager());
+        NeoForge.EVENT_BUS.register(new DistortionEffectManager());
 
         ModAttachments.register(modEventBus);
 

@@ -4,6 +4,7 @@ import net.kaupenjoe.tutorialmod.distortion.network.DistortionNetwork;
 import net.kaupenjoe.tutorialmod.rift.RiftManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.level.Level;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -18,6 +19,7 @@ public final class DistortionManager {
         }
 
         boolean overworld = level.dimension().equals(Level.OVERWORLD);
+
         boolean prison = level.dimension().equals(
                 RiftManager.PRISON_DIMENSION
         );
@@ -68,6 +70,19 @@ public final class DistortionManager {
 
         DistortionData data = player.getData(
                 ModAttachments.DISTORTION.get()
+        );
+
+        boolean diedFromDistortion =
+                data.consumeDeathPenaltyAfterRespawn();
+
+        if (diedFromDistortion) {
+            player.removeEffect(MobEffects.DARKNESS);
+            player.removeEffect(MobEffects.BLINDNESS);
+        }
+
+        DistortionEffectManager.refreshAttributeModifiers(
+                player,
+                data
         );
 
         DistortionNetwork.sync(
