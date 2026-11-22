@@ -1,8 +1,7 @@
-
 package net.kaupenjoe.tutorialmod.entity.custom;
 
+import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
 import net.kaupenjoe.tutorialmod.rift.RiftManager;
-import net.kaupenjoe.tutorialmod.rift.RiftProtection;
 import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
@@ -16,51 +15,22 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import org.joml.Vector3f;
-import net.minecraft.core.BlockPos;
-import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
 import net.neoforged.fml.ModList;
-
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.Tag;
-
-import java.util.HashSet;
-import java.util.Set;
-import java.util.UUID;
+import org.joml.Vector3f;
 
 public class AggressiveRiftEntity extends Entity {
 
     private static final int DURATION_TICKS = 20 * 8;
     public static final double EFFECT_RADIUS = 100.0D;
 
-    private boolean portalMarkersPlaced = false;
-    private boolean airshipTransferred = false;
-
-
-    private final Set<UUID> transferredAirshipIds = new HashSet<>();
-
-    private static final int POST_TELEPORT_VISUAL_TICKS = 20;
-
-    private int postTeleportTicks = -1;
-
-    private BlockPos preparedDestination = null;
-
     private static final DustParticleOptions RED_TETHER =
-            new DustParticleOptions(
-                    new Vector3f(0.95F, 0.035F, 0.015F),
-                    0.9F
-            );
+            new DustParticleOptions(new Vector3f(0.95F, 0.035F, 0.015F), 0.9F);
 
     private static final DustParticleOptions RED_CORE =
-            new DustParticleOptions(
-                    new Vector3f(1.0F, 0.08F, 0.025F),
-                    1.35F
-            );
-
-    private static final int TELEPORT_RETRY_INTERVAL_TICKS = 10;
+            new DustParticleOptions(new Vector3f(1.0F, 0.08F, 0.025F), 1.35F);
 
     private int remainingTicks = DURATION_TICKS;
-    private int teleportRetryTicks = 0;
+    private boolean legacyPortalMarkersPlaced;
 
     public AggressiveRiftEntity(
             EntityType<? extends AggressiveRiftEntity> entityType,
@@ -71,85 +41,28 @@ public class AggressiveRiftEntity extends Entity {
         this.setNoGravity(true);
     }
 
-    public BlockPos getPreparedDestination() {
-        return preparedDestination;
-    }
-
-    public boolean canReceiveAirships() {
-        return this.isAlive()
-                && remainingTicks <= 0
-                && preparedDestination != null
-                && postTeleportTicks < 0;
-    }
-
-
-
-    public boolean hasAirshipTransferred(UUID shipId) {
-        return transferredAirshipIds.contains(shipId);
-    }
-
-    public void onAirshipTransferred(UUID shipId) {
-        transferredAirshipIds.add(shipId);
-        airshipTransferred = true;
-    }
-
     @Override
-    protected void defineSynchedData(
-            SynchedEntityData.Builder builder
-    ) {
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
     }
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {
-        this.remainingTicks = Math.max(
-                0,
-                Math.min(DURATION_TICKS, tag.getInt("RemainingTicks"))
-        );
-
-        this.portalMarkersPlaced =
-                tag.getBoolean("PortalMarkersPlaced");
-
-        this.airshipTransferred =
-                tag.getBoolean("AirshipTransferStarted");
-
-        this.teleportRetryTicks = Math.max(
-                0,
-                tag.getInt("TeleportRetryTicks")
-        );
-
-        this.postTeleportTicks = tag.contains("PostTeleportTicks")
-                ? tag.getInt("PostTeleportTicks")
-                : -1;
-
-        if (tag.getBoolean("HasPreparedDestination")) {
-            this.preparedDestination = new BlockPos(
-                    tag.getInt("PreparedDestinationX"),
-                    tag.getInt("PreparedDestinationY"),
-                    tag.getInt("PreparedDestinationZ")
+        if (tag.contains("RemainingTicks")) {
+            this.remainingTicks = Math.max(
+                    0,
+                    Math.min(DURATION_TICKS, tag.getInt("RemainingTicks"))
             );
-        } else {
-            this.preparedDestination = null;
         }
+
+        this.legacyPortalMarkersPlaced = tag.getBoolean("PortalMarkersPlaced");
     }
 
     @Override
     protected void addAdditionalSaveData(CompoundTag tag) {
         tag.putInt("RemainingTicks", this.remainingTicks);
-        tag.putInt("TeleportRetryTicks", this.teleportRetryTicks);
-        tag.putInt("PostTeleportTicks", this.postTeleportTicks);
 
-        tag.putBoolean("PortalMarkersPlaced", this.portalMarkersPlaced);
-        tag.putBoolean("AirshipTransferStarted", this.airshipTransferred);
-
-        tag.putBoolean(
-                "HasPreparedDestination",
-                this.preparedDestination != null
-        );
-
-        if (this.preparedDestination != null) {
-            tag.putInt("PreparedDestinationX", this.preparedDestination.getX());
-            tag.putInt("PreparedDestinationY", this.preparedDestination.getY());
-            tag.putInt("PreparedDestinationZ", this.preparedDestination.getZ());
+        if (this.legacyPortalMarkersPlaced) {
+            tag.putBoolean("PortalMarkersPlaced", true);
         }
     }
 
@@ -157,85 +70,51 @@ public class AggressiveRiftEntity extends Entity {
     public void tick() {
         super.tick();
 
-        if (this.level().isClientSide) {
-            return;
-        }
-
         if (!(this.level() instanceof ServerLevel serverLevel)) {
             return;
         }
 
-        // После завершения телепортации оставляем портал видимым ещё на секунду.
-        if (postTeleportTicks >= 0) {
-            if (postTeleportTicks == 0) {
-                this.discard();
-            } else {
-                postTeleportTicks--;
-            }
-
+        if (remainingTicks == 0) {
+            this.discard();
             return;
         }
 
         int elapsedTicks = DURATION_TICKS - remainingTicks;
+        applyPullAndTethers(serverLevel, elapsedTicks);
 
-        // Продолжаем притягивать игроков даже после окончания таймера.
-        int nearbyAirships =
-                applyPullAndTethers(serverLevel, elapsedTicks);
-
-        // Звуки обратного отсчёта.
-        if (remainingTicks > 0 && elapsedTicks % 20 == 0) {
+        if (elapsedTicks % 20 == 0) {
             serverLevel.playSound(
                     null,
-                    this.getX(),
-                    this.getY(),
-                    this.getZ(),
+                    this.getX(), this.getY(), this.getZ(),
                     SoundEvents.BELL_RESONATE,
                     SoundSource.AMBIENT,
-                    6.0F,
-                    0.65F
+                    6.0F, 0.65F
             );
         }
 
-        if (remainingTicks > 0 &&
-                (elapsedTicks == 0 || elapsedTicks == 60)) {
+        if (elapsedTicks == 0 || elapsedTicks == 60) {
             serverLevel.playSound(
                     null,
-                    this.getX(),
-                    this.getY(),
-                    this.getZ(),
+                    this.getX(), this.getY(), this.getZ(),
                     SoundEvents.LIGHTNING_BOLT_THUNDER,
                     SoundSource.WEATHER,
-                    6.0F,
-                    0.75F
+                    6.0F, 0.75F
             );
         }
 
-        // Красные частицы вокруг самого разлома.
         if (elapsedTicks % 2 == 0) {
             double rotation = elapsedTicks * 0.35D;
 
             for (int i = 0; i < 4; i++) {
                 double angle = rotation + i * Math.PI / 2.0D;
-
-                double particleX =
-                        this.getX() + Math.cos(angle) * 1.2D;
-
-                double particleZ =
-                        this.getZ() + Math.sin(angle) * 1.2D;
-
-                double particleY =
-                        this.getY() + 0.5D + (i % 2) * 1.2D;
+                double particleX = this.getX() + Math.cos(angle) * 1.2D;
+                double particleZ = this.getZ() + Math.sin(angle) * 1.2D;
+                double particleY = this.getY() + 0.5D + (i % 2) * 1.2D;
 
                 serverLevel.sendParticles(
                         RED_TETHER,
-                        particleX,
-                        particleY,
-                        particleZ,
-                        2,
-                        0.05D,
-                        0.1D,
-                        0.05D,
-                        0.01D
+                        particleX, particleY, particleZ,
+                        2, 0.05D, 0.1D, 0.05D, 0.01D
                 );
             }
         }
@@ -243,125 +122,34 @@ public class AggressiveRiftEntity extends Entity {
         if (elapsedTicks % 5 == 0) {
             serverLevel.sendParticles(
                     RED_CORE,
-                    this.getX(),
-                    this.getY() + 1.5D,
-                    this.getZ(),
-                    4,
-                    0.7D,
-                    1.0D,
-                    0.7D,
-                    0.015D
+                    this.getX(), this.getY() + 1.5D, this.getZ(),
+                    4, 0.7D, 1.0D, 0.7D, 0.015D
             );
         }
 
-        // Основной отсчёт пяти секунд.
-        if (remainingTicks > 0) {
-            remainingTicks--;
-        }
-
-// За секунду до телепортации заранее выбираем место назначения
-// и загружаем область вокруг него.
-        if (remainingTicks <= 20 && preparedDestination == null) {
-            preparedDestination =
-                    RiftManager.prepareAggressiveDestination(
-                            serverLevel,
-                            50000
-                    );
-        }
-
-        // После окончания отсчёта открываем проход для кораблей.
-        if (remainingTicks <= 0
-                && preparedDestination != null
-                && !portalMarkersPlaced
-                && ModList.get().isLoaded("aeroportals")) {
-
-            AeroPortalsRiftIntegration.ensureAggressivePortalMarkers(
-                    serverLevel,
-                    this.blockPosition()
-            );
-
-            portalMarkersPlaced = true;
-        }
-
-// После окончания пяти секунд начинаем телепортацию.
-        if (remainingTicks <= 0) {
-            if (teleportRetryTicks > 0) {
-                teleportRetryTicks--;
-                return;
-            }
-
-            teleportRetryTicks = TELEPORT_RETRY_INTERVAL_TICKS;
-
-            RiftManager.AggressiveRiftTeleportResult result =
-                    RiftManager.teleportPlayersFromAggressiveRift(
-                            serverLevel,
-                            this.position(),
-                            EFFECT_RADIUS,
-                            50000,
-                            this.getUUID(),
-                            preparedDestination
-                    );
-
-            if (nearbyAirships == 0
-                    && (result.isResolved() || airshipTransferred)) {
-
-                postTeleportTicks = POST_TELEPORT_VISUAL_TICKS;
-            }
+        if (--remainingTicks == 0) {
+            RiftManager.finishAggressiveRift(serverLevel, this);
+            this.discard();
         }
     }
 
+    private void applyPullAndTethers(ServerLevel level, int elapsedTicks) {
+        AABB searchBounds = this.getBoundingBox().inflate(EFFECT_RADIUS);
+        Vec3 riftCenter = this.position().add(0.0D, this.getBbHeight() * 0.5D, 0.0D);
+        double progress = Math.min(1.0D, elapsedTicks / (double) (DURATION_TICKS - 1));
+        double desiredPullSpeed = 0.07D + 1.00D * progress * progress;
+        boolean aeroPortalsLoaded = ModList.get().isLoaded("aeroportals");
 
-    private int applyPullAndTethers(
-            ServerLevel level,
-            int elapsedTicks
-    ) {
-        AABB searchBounds =
-                this.getBoundingBox().inflate(EFFECT_RADIUS);
-
-        Vec3 riftCenter = this.position().add(
-                0.0D,
-                this.getBbHeight() * 0.5D,
-                0.0D
-        );
-
-        double progress = Math.min(
-                1.0D,
-                elapsedTicks / (double) (DURATION_TICKS - 1)
-        );
-
-        double desiredPullSpeed =
-                0.07D + 1.00D * progress * progress;
-
-        int nearbyAirships = 0;
-
-        // Притягиваем целые постройки через физику Sable.
-        if (ModList.get().isLoaded("aeroportals")) {
-            nearbyAirships =
-                    AeroPortalsRiftIntegration.pullNearbyAirships(
-                            level,
-                            riftCenter,
-                            EFFECT_RADIUS,
-                            progress,
-                            this
-                    );
+        if (aeroPortalsLoaded) {
+            AeroPortalsRiftIntegration.pullNearbyAirships(level, riftCenter, EFFECT_RADIUS, progress);
         }
 
-        for (ServerPlayer player : level.getEntitiesOfClass(
-                ServerPlayer.class,
-                searchBounds
-        )) {
-            // Пассажиров не притягиваем отдельно от их корабля.
-            if (ModList.get().isLoaded("aeroportals")
-                    && AeroPortalsRiftIntegration.isEntityOnAirship(player)) {
+        for (ServerPlayer player : level.getEntitiesOfClass(ServerPlayer.class, searchBounds)) {
+            if (aeroPortalsLoaded && AeroPortalsRiftIntegration.isEntityOnAirship(player)) {
                 continue;
             }
 
-            Vec3 playerCenter = player.position().add(
-                    0.0D,
-                    player.getBbHeight() * 0.5D,
-                    0.0D
-            );
-
+            Vec3 playerCenter = player.position().add(0.0D, player.getBbHeight() * 0.5D, 0.0D);
             Vec3 toRift = riftCenter.subtract(playerCenter);
             double distance = toRift.length();
 
@@ -370,43 +158,22 @@ public class AggressiveRiftEntity extends Entity {
             }
 
             if (elapsedTicks % 4 == 0) {
-                sendTetherParticles(
-                        level,
-                        player,
-                        riftCenter,
-                        playerCenter,
-                        distance
-                );
+                sendTetherParticles(level, player, riftCenter, playerCenter, distance);
             }
 
             if (distance > 1.6D && !player.getAbilities().flying) {
                 Vec3 pullDirection = toRift.normalize();
-
                 Vec3 currentVelocity = player.getDeltaMovement();
-
-                double currentTowardSpeed =
-                        currentVelocity.dot(pullDirection);
+                double currentTowardSpeed = currentVelocity.dot(pullDirection);
 
                 if (currentTowardSpeed < desiredPullSpeed) {
-                    double velocityDifference =
-                            desiredPullSpeed - currentTowardSpeed;
-
-                    player.setDeltaMovement(
-                            currentVelocity.add(
-                                    pullDirection.scale(velocityDifference)
-                            )
-                    );
-
-                    player.connection.send(
-                            new ClientboundSetEntityMotionPacket(player)
-                    );
+                    double velocityDifference = desiredPullSpeed - currentTowardSpeed;
+                    player.setDeltaMovement(currentVelocity.add(pullDirection.scale(velocityDifference)));
+                    player.connection.send(new ClientboundSetEntityMotionPacket(player));
                 }
             }
         }
-
-        return nearbyAirships;
     }
-
 
     private void sendTetherParticles(
             ServerLevel level,
@@ -415,32 +182,15 @@ public class AggressiveRiftEntity extends Entity {
             Vec3 end,
             double distance
     ) {
-        int points = Math.max(
-                6,
-                Math.min(
-                        12,
-                        (int) Math.ceil(distance / 8.0D)
-                )
-        );
+        int points = Math.max(6, Math.min(12, (int) Math.ceil(distance / 8.0D)));
 
         for (int i = 0; i <= points; i++) {
-            Vec3 point = start.lerp(
-                    end,
-                    i / (double) points
-            );
+            Vec3 point = start.lerp(end, i / (double) points);
 
             level.sendParticles(
-                    player,
-                    RED_TETHER,
-                    true,
-                    point.x,
-                    point.y,
-                    point.z,
-                    1,
-                    0.0D,
-                    0.0D,
-                    0.0D,
-                    0.0D
+                    player, RED_TETHER, true,
+                    point.x, point.y, point.z,
+                    1, 0.0D, 0.0D, 0.0D, 0.0D
             );
         }
     }
@@ -456,17 +206,13 @@ public class AggressiveRiftEntity extends Entity {
     }
 
     @Override
-    public void remove(RemovalReason reason) {
-        if ((reason == RemovalReason.DISCARDED
-                || reason == RemovalReason.KILLED)
-                && !this.level().isClientSide
+    public void remove(Entity.RemovalReason reason) {
+        if ((reason == Entity.RemovalReason.DISCARDED || reason == Entity.RemovalReason.KILLED)
                 && this.level() instanceof ServerLevel serverLevel
-                && portalMarkersPlaced
+                && legacyPortalMarkersPlaced
                 && ModList.get().isLoaded("aeroportals")) {
-
-            AeroPortalsRiftIntegration.removeAggressivePortalMarkers(
-                    serverLevel,
-                    this.blockPosition()
+            AeroPortalsRiftIntegration.removeLegacyAggressivePortalMarkers(
+                    serverLevel, this.blockPosition()
             );
         }
 
