@@ -35,7 +35,14 @@ import net.kaupenjoe.tutorialmod.distortion.ModAttachments;
 import net.kaupenjoe.tutorialmod.distortion.network.DistortionNetwork;
 import net.minecraft.client.renderer.item.ItemProperties;
 import net.minecraft.resources.ResourceLocation;
-import net.kaupenjoe.tutorialmod.item.custom.RiftCompassItem;
+import net.minecraft.client.renderer.item.CompassItemPropertyFunction;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
+import net.kaupenjoe.tutorialmod.rift.client.RiftCompassClientState;
+import net.minecraft.client.renderer.item.CompassItemPropertyFunction;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
+import net.kaupenjoe.tutorialmod.rift.client.RiftCompassClientState;
 
 @Mod(TutorialMod.MOD_ID)
 public class TutorialMod {
@@ -151,7 +158,28 @@ public class TutorialMod {
                                 MOD_ID,
                                 "angle"
                         ),
-                        RiftCompassItem::getAngle
+                        new CompassItemPropertyFunction((level, stack, entity) -> {
+                            if (level == null
+                                    || entity == null
+                                    || !RiftCompassClientState.hasTarget()) {
+                                return null;
+                            }
+
+                            // Не используем цель, если она принадлежит другому измерению.
+                            if (!level.dimension().location().toString().equals(
+                                    RiftCompassClientState.getDimension()
+                            )) {
+                                return null;
+                            }
+
+                            BlockPos target = new BlockPos(
+                                    RiftCompassClientState.getX(),
+                                    RiftCompassClientState.getY(),
+                                    RiftCompassClientState.getZ()
+                            );
+
+                            return GlobalPos.of(level.dimension(), target);
+                        })
                 );
             });
         }

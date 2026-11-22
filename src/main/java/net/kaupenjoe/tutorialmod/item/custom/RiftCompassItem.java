@@ -1,3 +1,4 @@
+
 package net.kaupenjoe.tutorialmod.item.custom;
 
 import net.kaupenjoe.tutorialmod.compat.aeroportals.AeroPortalsRiftIntegration;
@@ -12,7 +13,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
@@ -21,13 +21,15 @@ import net.minecraft.world.phys.Vec3;
 
 import net.neoforged.fml.ModList;
 
-import net.minecraft.client.multiplayer.ClientLevel;
-
 import java.util.List;
 
 public class RiftCompassItem extends Item {
 
     private static final long SYNC_INTERVAL_TICKS = 10L;
+
+    private static final double MAX_SEARCH_DISTANCE = 1000.0D;
+    private static final double MAX_SEARCH_DISTANCE_SQUARED =
+            MAX_SEARCH_DISTANCE * MAX_SEARCH_DISTANCE;
 
     private record RiftTarget(
             BlockPos position,
@@ -100,14 +102,6 @@ public class RiftCompassItem extends Item {
     private static RiftTarget findNearestRift(ServerPlayer player) {
         ServerLevel currentLevel = player.serverLevel();
 
-        ServerLevel overworld =
-                currentLevel.getServer().getLevel(Level.OVERWORLD);
-
-        ServerLevel prison =
-                currentLevel.getServer().getLevel(
-                        RiftManager.PRISON_DIMENSION
-                );
-
         Vec3 playerPosition = player.position();
 
         if (ModList.get().isLoaded("aeroportals")) {
@@ -115,84 +109,35 @@ public class RiftCompassItem extends Item {
                     AeroPortalsRiftIntegration.getEntityWorldPosition(player);
         }
 
-        ServerLevel[] dimensions = {
-                overworld,
-                prison
-        };
+        RiftLifetimeSavedData data =
+                RiftLifetimeSavedData.get(currentLevel);
 
         RiftTarget closestTarget = null;
-        double closestDistanceSquared = Double.MAX_VALUE;
+        double closestDistanceSquared = MAX_SEARCH_DISTANCE_SQUARED;
 
-        for (ServerLevel targetLevel : dimensions) {
-            if (targetLevel == null) {
+        for (BlockPos position : data.getActiveRiftPositions()) {
+            Vec3 targetPosition = new Vec3(
+                    position.getX() + 0.5D,
+                    position.getY() + 0.5D,
+                    position.getZ() + 0.5D
+            );
+
+            double distanceSquared =
+                    playerPosition.distanceToSqr(targetPosition);
+
+            if (distanceSquared >= closestDistanceSquared) {
                 continue;
             }
 
-            RiftLifetimeSavedData data =
-                    RiftLifetimeSavedData.get(targetLevel);
+            closestDistanceSquared = distanceSquared;
 
-            for (BlockPos position : data.getActiveRiftPositions()) {
-                Vec3 targetPosition = new Vec3(
-                        position.getX() + 0.5D,
-                        position.getY() + 0.5D,
-                        position.getZ() + 0.5D
-                );
-
-                double distanceSquared =
-                        playerPosition.distanceToSqr(targetPosition);
-
-                if (distanceSquared < closestDistanceSquared) {
-                    closestDistanceSquared = distanceSquared;
-
-                    closestTarget = new RiftTarget(
-                            position,
-                            targetLevel.dimension()
-                    );
-                }
-            }
+            closestTarget = new RiftTarget(
+                    position,
+                    currentLevel.dimension()
+            );
         }
 
         return closestTarget;
-    }
-
-    public static float getAngle(
-            ItemStack stack,
-            ClientLevel level,
-            LivingEntity holder,
-            int seed
-    ) {
-        if (holder == null || !RiftCompassClientState.hasTarget()) {
-            return 0.0F;
-        }
-
-        double dx =
-                RiftCompassClientState.getX() + 0.5D - holder.getX();
-
-        double dz =
-                RiftCompassClientState.getZ() + 0.5D - holder.getZ();
-
-        if (dx * dx + dz * dz < 0.0001D) {
-            return 0.0F;
-        }
-
-        double targetAngle =
-                Math.atan2(dz, dx) / (Math.PI * 2.0D);
-
-        double wrappedYaw =
-                (180.0D + holder.getYRot()) % 360.0D;
-
-        if (wrappedYaw < 0.0D) {
-            wrappedYaw += 360.0D;
-        }
-
-        wrappedYaw /= 360.0D;
-
-        double angle =
-                0.5D - (targetAngle - wrappedYaw);
-
-        angle -= Math.floor(angle);
-
-        return (float) angle;
     }
 
     @Override
