@@ -105,7 +105,9 @@ public final class RiftManager {
     private static final long AGGRESSIVE_RIFT_INTERVAL_TICKS =
             20L * 60L * 30L;
 
-    private static final double AGGRESSIVE_RIFT_SPAWN_RADIUS = 15.0D;
+    private static final double AGGRESSIVE_RIFT_MIN_SPAWN_DISTANCE = 40.0D;
+    private static final double AGGRESSIVE_RIFT_MAX_SPAWN_DISTANCE = 60.0D;
+
     private static final double AGGRESSIVE_RIFT_TELEPORT_RADIUS = 100.0D;
 
     private static final int AGGRESSIVE_RIFT_DESTINATION_RADIUS = 50_000;
@@ -482,25 +484,31 @@ public final class RiftManager {
             ServerLevel level,
             ServerPlayer player
     ) {
-        for (int attempt = 0; attempt < 64; attempt++) {
-            double offsetX =
-                    level.getRandom().nextDouble() * 30.0D - 15.0D;
+        double minDistanceSquared =
+                AGGRESSIVE_RIFT_MIN_SPAWN_DISTANCE
+                        * AGGRESSIVE_RIFT_MIN_SPAWN_DISTANCE;
+
+        double maxDistanceSquared =
+                AGGRESSIVE_RIFT_MAX_SPAWN_DISTANCE
+                        * AGGRESSIVE_RIFT_MAX_SPAWN_DISTANCE;
+
+        for (int attempt = 0; attempt < 128; attempt++) {
+            double angle =
+                    level.getRandom().nextDouble() * Math.PI * 2.0D;
+
+            double distance =
+                    AGGRESSIVE_RIFT_MIN_SPAWN_DISTANCE
+                            + level.getRandom().nextDouble()
+                            * (
+                            AGGRESSIVE_RIFT_MAX_SPAWN_DISTANCE
+                                    - AGGRESSIVE_RIFT_MIN_SPAWN_DISTANCE
+                    );
+
+            double offsetX = Math.cos(angle) * distance;
+            double offsetZ = Math.sin(angle) * distance;
 
             double offsetY =
                     level.getRandom().nextDouble() * 8.0D - 4.0D;
-
-            double offsetZ =
-                    level.getRandom().nextDouble() * 30.0D - 15.0D;
-
-            double distanceSquared =
-                    offsetX * offsetX
-                            + offsetY * offsetY
-                            + offsetZ * offsetZ;
-
-            if (distanceSquared >
-                    AGGRESSIVE_RIFT_SPAWN_RADIUS * AGGRESSIVE_RIFT_SPAWN_RADIUS) {
-                continue;
-            }
 
             double x = player.getX() + offsetX;
             double y = player.getY() + offsetY;
@@ -513,6 +521,17 @@ public final class RiftManager {
                 continue;
             }
 
+            double actualDx = pos.getX() + 0.5D - player.getX();
+            double actualDz = pos.getZ() + 0.5D - player.getZ();
+
+            double actualDistanceSquared =
+                    actualDx * actualDx + actualDz * actualDz;
+
+            if (actualDistanceSquared < minDistanceSquared
+                    || actualDistanceSquared > maxDistanceSquared) {
+                continue;
+            }
+
             if (!level.getBlockState(pos).isAir()
                     || !level.getBlockState(pos.above()).isAir()
                     || !level.getFluidState(pos).isEmpty()) {
@@ -522,7 +541,7 @@ public final class RiftManager {
             return new Vec3(x, y, z);
         }
 
-        return player.position().add(0.0D, 1.0D, 0.0D);
+        return null;
     }
 
     public static AggressiveRiftTeleportResult teleportPlayersFromAggressiveRift(
@@ -847,6 +866,11 @@ public final class RiftManager {
 
             Vec3 spawnPosition =
                     findAggressiveRiftSpawnPosition(level, player);
+
+            if (spawnPosition == null) {
+                state.nextSpawnTick = gameTime + 20L * 5L;
+                continue;
+            }
 
             AggressiveRiftEntity rift =
                     ModEntities.AGGRESSIVE_RIFT.get().create(level);

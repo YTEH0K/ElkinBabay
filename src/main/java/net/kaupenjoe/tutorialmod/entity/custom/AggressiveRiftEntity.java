@@ -30,7 +30,7 @@ import java.util.UUID;
 
 public class AggressiveRiftEntity extends Entity {
 
-    private static final int DURATION_TICKS = 20 * 5;
+    private static final int DURATION_TICKS = 20 * 8;
     public static final double EFFECT_RADIUS = 100.0D;
 
     private boolean portalMarkersPlaced = false;
