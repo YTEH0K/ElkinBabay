@@ -10,7 +10,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.kaupenjoe.tutorialmod.item.custom.RiftSealItem;
-
+import net.kaupenjoe.tutorialmod.item.custom.RiftCompassItem;
 import java.util.List;
 
 public class ModItems {
@@ -24,6 +24,14 @@ public class ModItems {
                     () -> new RiftSealItem(
                             new Item.Properties().stacksTo(16)
                     ));
+
+    public static final DeferredItem<Item> RIFT_COMPASS =
+            ITEMS.register(
+                    "rift_compass",
+                    () -> new RiftCompassItem(
+                            new Item.Properties().stacksTo(1)
+                    )
+            );
 
 
     public static void register(IEventBus eventBus) {

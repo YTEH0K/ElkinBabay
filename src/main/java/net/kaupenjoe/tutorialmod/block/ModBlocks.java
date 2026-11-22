@@ -44,8 +44,6 @@ public class ModBlocks {
             () -> new DropExperienceBlock(UniformInt.of(3, 6),
                     BlockBehaviour.Properties.of().strength(4f).requiresCorrectToolForDrops().sound(SoundType.DEEPSLATE)));
 
-    public static final DeferredBlock<Block> MAGIC_BLOCK = registerBlock("magic_block",
-            () -> new MagicBlock(BlockBehaviour.Properties.of().strength(2f).noLootTable()));
 
     public static final DeferredBlock<RiftBlock> RIFT = BLOCKS.register("rift",
             () -> new RiftBlock(BlockBehaviour.Properties.of()

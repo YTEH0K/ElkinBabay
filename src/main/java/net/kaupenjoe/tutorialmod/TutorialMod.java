@@ -33,6 +33,9 @@ import net.kaupenjoe.tutorialmod.client.renderer.AggressiveRiftRenderer;
 import net.kaupenjoe.tutorialmod.distortion.DistortionManager;
 import net.kaupenjoe.tutorialmod.distortion.ModAttachments;
 import net.kaupenjoe.tutorialmod.distortion.network.DistortionNetwork;
+import net.minecraft.client.renderer.item.ItemProperties;
+import net.minecraft.resources.ResourceLocation;
+import net.kaupenjoe.tutorialmod.item.custom.RiftCompassItem;
 
 @Mod(TutorialMod.MOD_ID)
 public class TutorialMod {
@@ -73,6 +76,7 @@ public class TutorialMod {
         if (event.getTabKey() == CreativeModeTabs.INGREDIENTS) {
 
             event.accept(ModItems.RIFT_SEAL);
+            event.accept(ModItems.RIFT_COMPASS);
         }
 
         if (event.getTabKey() == CreativeModeTabs.BUILDING_BLOCKS) {
@@ -140,6 +144,16 @@ public class TutorialMod {
     public static class ClientModEvents {
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
+            event.enqueueWork(() -> {
+                ItemProperties.register(
+                        ModItems.RIFT_COMPASS.get(),
+                        ResourceLocation.fromNamespaceAndPath(
+                                MOD_ID,
+                                "angle"
+                        ),
+                        RiftCompassItem::getAngle
+                );
+            });
         }
 
         @SubscribeEvent

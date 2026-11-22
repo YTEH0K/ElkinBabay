@@ -44,21 +44,6 @@ public class PipeItem extends Item {
     }
 
     private static MobEffectInstance getEffect(ItemStack item) {
-        if (item.is(ModItems.BISMUTH.get())) {
-            return new MobEffectInstance(
-                    net.minecraft.world.effect.MobEffects.MOVEMENT_SPEED,
-                    20 * 15,
-                    0
-            );
-        }
-
-        if (item.is(ModItems.STARLIGHT_ASHES.get())) {
-            return new MobEffectInstance(
-                    net.minecraft.world.effect.MobEffects.JUMP,
-                    20 * 15,
-                    0
-            );
-        }
 
         if (item.is(Items.RED_MUSHROOM)) {
             return new MobEffectInstance(

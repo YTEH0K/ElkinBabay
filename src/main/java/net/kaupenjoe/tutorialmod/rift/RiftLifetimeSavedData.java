@@ -13,6 +13,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
+import net.minecraft.core.BlockPos;
+import java.util.List;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -61,6 +63,22 @@ public final class RiftLifetimeSavedData extends SavedData {
             this.unoccupiedTicks = unoccupiedTicks;
             this.expired = expired;
         }
+    }
+
+    public List<BlockPos> getActiveRiftPositions() {
+        List<BlockPos> positions = new ArrayList<>();
+
+        for (RiftRecord record : records.values()) {
+            if (!record.expired) {
+                positions.add(new BlockPos(
+                        record.x,
+                        record.y,
+                        record.z
+                ));
+            }
+        }
+
+        return List.copyOf(positions);
     }
 
     private RiftLifetimeSavedData() {
